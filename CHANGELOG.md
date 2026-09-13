@@ -31,7 +31,7 @@ public API, no formal release process — commits land straight on
   `superBossOne`'s own cycle-scaled equivalents. Validate and retune with `scripts/simulate-balance.js --cycle-sweep`
   before final placement.
 - **`guardiansLastStand` unique item added to the superboss loot pool.**
-  A new guaranteed drop for the cycle-4 superboss (superFifth), combining `thornsPercent` (30) and `debuffDurationPercent` (25) — both existing stat fields already wired through equipment bonuses. Includes a placeholder name to be renamed before final release.
+  A new guaranteed drop for the cycle-4 superboss (superBossFive), combining `thornsPercent` (30) and `debuffDurationPercent` (25) — both existing stat fields already wired through equipment bonuses. Includes a placeholder name to be renamed before final release.
 - **Four new `SUPER_BOSSES` registry entries added (`superBossTwo` through `superBossFive`).**
   Each starts inert (`screenId: null`, `x: null`, `y: null`) following the same pattern as `superBossOne` before placement via the terrain painter. All default to `hasDungeon: false` (wilderness encounters, not dungeon-gated); Timothy can convert any to dungeon entrances later using the existing terrain-painter tooling with zero new code. Each entry carries a `debutNgPlusCycle` field (1–4 respectively) gating when it can be encountered, consistent with Task 5's `isSuperBossDebuted` predicate wiring.
 
