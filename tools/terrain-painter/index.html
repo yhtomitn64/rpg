@@ -47,7 +47,7 @@
   canvas { border: 1px solid #444; cursor: crosshair; display: block; margin-top: 12px; touch-action: none; }
   canvas.placing-dungeon { cursor: cell; }
   .bulk-export-row { margin-top: 12px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
-  .bulk-export-row button { padding: 4px 8px; background: #222; color: #eee; border: 2px solid #444; cursor: pointer; font-family: monospace; }
+  .bulk-export-row button, .bulk-export-row select { padding: 4px 8px; background: #222; color: #eee; border: 2px solid #444; cursor: pointer; font-family: monospace; }
   #exportRow { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
   #exportOutput {
     width: 100%; max-width: 900px; height: 140px; margin-top: 8px;
@@ -80,8 +80,12 @@
   dungeon sitting behind thicket while the axe dungeon itself is
   unreachable) gets caught. Yellow tint = only reachable with some tool,
   red = not reachable even with every tool, magenta = exactly where the
-  first broken stage gets stuck. Dungeon-interior maps don't have their own
-  reachability check yet. "Place Tool Dungeon Entrance"
+  first broken stage gets stuck. Once the tool-gated chain checks out, every
+  placed superboss marker is also checked against "reachable with every
+  tool" (they don't gate further progression, so they aren't part of the
+  staged order above - just verified reachable once you're fully tooled up).
+  Dungeon-interior maps don't have their own reachability check yet.
+  "Place Tool Dungeon Entrance"
   works the same way for whichever tool dungeon is selected in the dropdown
   next to it — copies paste into that entry's <code>screenId</code>/<code>x</code>/<code>y</code>
   in <code>js/data/toolDungeons.js</code>. "Place Super-Boss Marker" is the
@@ -110,7 +114,13 @@
   <code>js/main.js</code> — it also asks for the guardian's monster id
   (a key from <code>MONSTERS</code> in <code>js/data/monsters.js</code>)
   and needs the Node server running (no File System Access fallback,
-  since there's no existing file to patch).
+  since there's no existing file to patch). The "Hook up to superboss"
+  dropdown next to that button is optional but recommended: pick the
+  superboss this dungeon belongs to and saving will also set that
+  entry's <code>dungeonMapId</code> and <code>hasDungeon: true</code> in
+  <code>js/data/superBosses.js</code> automatically - leaving it on
+  "(none)" saves the dungeon file itself but leaves that link for you to
+  add by hand, same as every dungeon before this dropdown existed.
 </p>
 </details>
 <div id="mapControls">
@@ -161,6 +171,10 @@
   <span id="exportAllStatus"></span>
 </div>
 <div class="bulk-export-row single-map-only new-dungeon-only">
+  <label for="hookUpSuperBossSelect">Hook up to superboss:</label>
+  <select id="hookUpSuperBossSelect">
+    <option value="">(none - standalone dungeon)</option>
+  </select>
   <button id="saveNewDungeonBtn" title="Write this brand-new dungeon to js/maps/superBosses/ and register it in js/main.js (needs the Node authoring server)">Save New Dungeon to Server</button>
   <span id="saveNewDungeonStatus"></span>
 </div>

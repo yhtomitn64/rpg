@@ -371,7 +371,14 @@ function renderWilderness(ctx) {
     ctx.textBaseline = 'alphabetic';
   }
 
-  for (const [superBossId, pos] of Object.entries(superBossMarkers)) {
+  // Labeled SB1/SB2/... by position in superBossMarkers' own key order (which
+  // mirrors SUPER_BOSSES' declaration order) rather than the id's own text -
+  // every current id starts "superBoss", so the old `slice(0, 2)` labeled
+  // every single marker "SU", indistinguishable on the map (raised by
+  // Timothy once a second superboss existed to collide with the first).
+  const superBossIdsInOrder = Object.keys(superBossMarkers);
+  for (const [markerIndex, superBossId] of superBossIdsInOrder.entries()) {
+    const pos = superBossMarkers[superBossId];
     const world = localToWorld(pos.screenId, pos.x, pos.y);
     if (!world) continue;
     const cx = world.wx * CELL + CELL / 2;
@@ -387,7 +394,7 @@ function renderWilderness(ctx) {
     ctx.font = 'bold 8px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(superBossId.slice(0, 2).toUpperCase(), cx, cy + 1);
+    ctx.fillText(`SB${markerIndex + 1}`, cx, cy + 1);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
   }
@@ -781,13 +788,37 @@ function checkMap() {
     return;
   }
 
+  // Superboss markers aren't part of the tool-gated progression chain above
+  // (they don't unlock anything further, so there's no "stage order" to
+  // check them against) - each one just needs to be reachable once every
+  // tool is in hand, checked here against tooledReached directly rather
+  // than folded into checkProgression's staged entrances list. Only placed
+  // markers are checked - an unplaced one (screenId still null) has nothing
+  // to verify yet, same as the tool-dungeon "hasn't been placed yet" case
+  // above.
+  const unreachableSuperBosses = [];
+  for (const [superBossId, pos] of Object.entries(superBossMarkers)) {
+    if (!pos.screenId) continue;
+    const world = worldKeyFor(pos);
+    if (!world || !tooledReached.has(`${world.x},${world.y}`)) {
+      unreachableSuperBosses.push(superBossId);
+    }
+  }
+
+  if (unreachableSuperBosses.length > 0) {
+    const verb = unreachableSuperBosses.length === 1 ? 'is' : 'are';
+    status.textContent = `❌ ${unreachableSuperBosses.join(', ')} ${verb} NOT reachable even with every tool — red tiles on the map mark what's cut off.`;
+    status.className = 'fail';
+    return;
+  }
+
   // What actually matters (Timothy's own bar): can the player navigate,
   // get the treasure/tools, and reach the dragon - not "is literally every
   // grass tile in the world reachable." The entrance chain above is the
   // real check; isolated pockets elsewhere are still visibly tinted red on
   // the map (nothing hidden) but aren't treated as a failure here unless
   // something is actually placed there.
-  status.textContent = '✅ Full progression is soundly gated: town → axe → pick → canoe (boat) → portal → dragon dungeon, each reachable in order.';
+  status.textContent = '✅ Full progression is soundly gated: town → axe → pick → canoe (boat) → portal → dragon dungeon, each reachable in order — and every placed superboss is reachable with every tool.';
   status.className = 'ok';
 }
 
@@ -871,6 +902,19 @@ async function init() {
     superBossSelect.appendChild(opt);
   }
   superBossSelect.addEventListener('change', updateSuperBossReadout);
+
+  // "New Dungeon" mode's optional hook-up-to-a-superboss dropdown (see
+  // saveNewDungeonBtn below) - same SUPER_BOSS_IDS list as superBossSelect
+  // above, kept as a separate <select> since the two live in different
+  // control groups (wilderness-only vs. new-dungeon-only) and serve
+  // different purposes (placing a marker vs. saving a dungeon file).
+  const hookUpSuperBossSelect = document.getElementById('hookUpSuperBossSelect');
+  for (const superBossId of SUPER_BOSS_IDS) {
+    const opt = document.createElement('option');
+    opt.value = superBossId;
+    opt.textContent = superBossId;
+    hookUpSuperBossSelect.appendChild(opt);
+  }
 
   function currentPalette() {
     return currentMapKey === 'wilderness' ? WILDERNESS_PALETTE : SINGLE_MAPS[currentMapKey].palette;
@@ -1337,6 +1381,26 @@ async function init() {
       return;
     }
 
+    // Optional hook-up, added after superBossTwo's dungeon needed a manual
+    // dungeonMapId edit afterward (raised 2026-09-13) - "(none)" leaves that
+    // link for the author to add by hand, same as every dungeon before this
+    // dropdown existed. superBossesMod.SUPER_BOSSES is the snapshot loaded
+    // at page init, not re-fetched here - fine for a same-session "already
+    // has a different dungeon" warning, since re-linking one boss's dungeon
+    // to a different map file mid-session is exactly the rare case worth
+    // asking about, not something to silently overwrite.
+    const hookUpSuperBossId = hookUpSuperBossSelect.value || null;
+    let hookUpSuperBoss = null;
+    if (hookUpSuperBossId) {
+      const existing = superBossesMod.SUPER_BOSSES[hookUpSuperBossId];
+      if (existing.dungeonMapId && existing.dungeonMapId !== currentMapKey) {
+        const proceed = confirm(`${hookUpSuperBossId} already has a dungeon ('${existing.dungeonMapId}'). Replace it with '${currentMapKey}'?`);
+        if (!proceed) return;
+      }
+      const marker = superBossMarkers[hookUpSuperBossId];
+      hookUpSuperBoss = { id: hookUpSuperBossId, screenId: marker.screenId, x: marker.x, y: marker.y };
+    }
+
     saveNewDungeonStatus.textContent = 'Saving…';
     try {
       await postJson('/api/create-dungeon', {
@@ -1345,8 +1409,20 @@ async function init() {
         startX: exitPos.x,
         startY: exitPos.y,
         guardianMonsterId,
+        hookUpSuperBoss,
       });
-      saveNewDungeonStatus.textContent = `Saved js/maps/superBosses/${currentMapKey}.js and registered it in js/main.js.`;
+      if (hookUpSuperBossId) {
+        // Keep the in-memory marker (and its color on the wilderness canvas)
+        // in sync without a reload - dungeonMapId itself isn't tracked
+        // client-side (see patchSuperBossEntry's own comment in server.js),
+        // only hasDungeon, which the canvas draw loop actually reads.
+        superBossMarkers[hookUpSuperBossId].hasDungeon = true;
+        superBossesMod.SUPER_BOSSES[hookUpSuperBossId].dungeonMapId = currentMapKey;
+        superBossesMod.SUPER_BOSSES[hookUpSuperBossId].hasDungeon = true;
+      }
+      saveNewDungeonStatus.textContent = hookUpSuperBossId
+        ? `Saved js/maps/superBosses/${currentMapKey}.js, registered it in js/main.js, and hooked it up to ${hookUpSuperBossId} in js/data/superBosses.js.`
+        : `Saved js/maps/superBosses/${currentMapKey}.js and registered it in js/main.js.`;
     } catch (err) {
       saveNewDungeonStatus.textContent = `Failed: ${err.message}`;
     }

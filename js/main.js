@@ -87,7 +87,15 @@ import * as mechanicExplainerScreen from './screens/mechanicExplainerScreen.js';
 import { ABILITY_EXPLAINERS } from './data/abilityExplainers.js';
 
 import { superBossOneDungeonMap } from './maps/superBosses/superBossOneDungeon.js';
+import { superBossTwoMap } from './maps/superBosses/superBossTwo.js';
+import { superBossThreeMap } from './maps/superBosses/superBossThree.js';
+import { superBossFourMap } from './maps/superBosses/superBossFour.js';
+import { superBossFiveMap } from './maps/superBosses/superBossFive.js';
 const MAPS = {
+  superBossFive: superBossFiveMap,
+  superBossFour: superBossFourMap,
+  superBossThree: superBossThreeMap,
+  superBossTwo: superBossTwoMap,
   superBossOneDungeon: superBossOneDungeonMap,
   town: townMap,
   dungeon: dungeonMap,

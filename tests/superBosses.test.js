@@ -5,6 +5,10 @@ import { TILES } from '../js/tiles.js';
 import { MONSTERS } from '../js/data/monsters.js';
 import { ITEMS } from '../js/data/items.js';
 import { superBossOneDungeonMap } from '../js/maps/superBosses/superBossOneDungeon.js';
+import { superBossTwoMap } from '../js/maps/superBosses/superBossTwo.js';
+import { superBossThreeMap } from '../js/maps/superBosses/superBossThree.js';
+import { superBossFourMap } from '../js/maps/superBosses/superBossFour.js';
+import { superBossFiveMap } from '../js/maps/superBosses/superBossFive.js';
 import { isWalkableAt } from '../js/systems/world.js';
 import { pickVariantOverrides } from '../js/systems/monsterVariants.js';
 
@@ -64,7 +68,13 @@ function assertFullyReachable(map) {
 // the same way tests/toolDungeonMaps.test.js keys TOOL_DUNGEONS - generic
 // over however many superbosses eventually get their own dungeon, not
 // hardcoded to just this one.
-const SUPER_BOSS_DUNGEONS = { superBossOne: superBossOneDungeonMap };
+const SUPER_BOSS_DUNGEONS = {
+  superBossOne: superBossOneDungeonMap,
+  superBossTwo: superBossTwoMap,
+  superBossThree: superBossThreeMap,
+  superBossFour: superBossFourMap,
+  superBossFive: superBossFiveMap,
+};
 
 test('every SUPER_BOSSES entry has the required shape', () => {
   for (const [id, entry] of Object.entries(SUPER_BOSSES)) {

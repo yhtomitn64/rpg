@@ -5,6 +5,20 @@
 // or care about while playing. Keep it in sync manually: add a new entry
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
+  // Internal-only, even though the four new superbosses are now genuinely
+  // placed in the world (screenId/x/y set, dungeons authored) - not
+  // announced yet because superBossFive's dungeon has a known unreachable-
+  // tile bug (npm test catches it) and this hasn't merged to main. Once
+  // fixed and merged, a real player-facing entry belongs here describing
+  // the new superbosses - see the 0.35.0 entry below for a first draft of
+  // that tone, minus its own since-corrected reachability claim.
+  {
+    version: '0.35.2',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: more internal groundwork for the upcoming New Game+ superbosses - still nothing to notice in-game yet.",
+    ],
+  },
   // Internal-only, same reason 0.34.7/0.34.8 got entries (see this file's
   // header + those entries' own comments): a fix wave from the final
   // whole-branch review of the superboss expansion branch - documentation

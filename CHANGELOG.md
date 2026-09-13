@@ -24,6 +24,48 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.35.2] - 2026-09-13
+
+### Added
+- **Terrain painter: superboss placement + dungeon-authoring quality-of-life pass.**
+  Raised live while Timothy placed all four new superbosses in the world:
+  (1) Superboss map markers now labeled `SB1`-`SB5` by registry order instead of the
+  first two letters of their id (every id started `superBoss`, so every marker read
+  "SU" - indistinguishable once a second superboss existed). (2) "Check Map" now also
+  verifies every *placed* superboss marker is reachable with every tool, not just the
+  axe → pick → canoe → portal → dragon chain - this was silently unchecked before.
+  (3) "Save New Dungeon to Server" gained an optional "Hook up to superboss" dropdown
+  that sets `dungeonMapId`/`hasDungeon` in `js/data/superBosses.js` automatically -
+  previously that link had to be hand-edited after every dungeon save, a gap Timothy
+  hit firsthand authoring `superBossTwo`'s dungeon.
+
+### Fixed
+- **All five superbosses are now placed in the world** (`js/data/superBosses.js`):
+  `superBossOne` was already placed; `superBossTwo`-`Five` now have real
+  `screenId`/`x`/`y` (behind water/mountain/thicket, confirmed reachable with every
+  tool via the new Check Map coverage above) and each has its own dungeon
+  (`js/maps/superBosses/superBossTwo.js` through `superBossFive.js`, registered in
+  `js/main.js` and in `tests/superBosses.test.js`'s structural coverage).
+  **`superBossFive`'s dungeon has a known bug**: tile (45, 0), next to the guardian,
+  is walkable but unreachable from the entrance - `npm run test` catches this
+  (`tests/superBosses.test.js`'s reachability check) and will keep failing until
+  the map is repainted to connect it. Left as-is rather than hand-patched, since
+  the map's actual layout is Timothy's own authoring work.
+
+### Not yet built (raised the same session, tracked for follow-up)
+- Dungeon-interior "Check Map" (door → guardian reachability, mirroring the
+  wilderness check) - `superBossFive`'s bug above is exactly what this would have
+  caught live in the editor instead of via `npm test` after the fact.
+  - Order-independent tool-progression checking (iteratively unlock whatever's
+  currently reachable instead of assuming a fixed axe→pick→canoe→portal script).
+  - An animated visualization of the reachability check itself (with a speed
+  slider) - explicitly requested as a "this would be cool" addition, not required.
+  - Live "N unsaved changes" indicator + a more prominent/relocated export button.
+  - Support for multiple `exit` tiles per dungeon (one designated `startPosition`,
+  any of them a valid way out) - see `docs/superpowers/BACKLOG.md`'s 2026-09-13
+  entry for why this is purely an editor-side restriction today, not a game-engine
+  one.
+
 ## [0.35.1] - 2026-09-13
 
 ### Fixed
