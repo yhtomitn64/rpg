@@ -33,6 +33,15 @@ public API, no formal release process — commits land straight on
   providing the decision logic that Task 5's wiring to `main.js` will call into. All entries
   without a `debutNgPlusCycle` field default to being immediately available (cycle >= 0),
   e.g. `superBossOne` does not have the field and debuts at cycle 0.
+- **`main.js`'s `superBossBattle`/`enterSuperBossDungeon` tile actions now actually gate on
+  `isSuperBossDebuted`.** Previously either branch would happily start the fight or open the
+  dungeon for any superboss found at the player's position, with no NG+ cycle check at all -
+  the predicate above existed but nothing called it yet. Both branches now check
+  `isSuperBossDebuted(superBoss, state.ngPlusCycle)` before doing anything and show
+  `getSuperBossNotYetMessage()`'s flavor banner instead when it's not met. No visible effect
+  yet with real data, since `superBossOne` has no `debutNgPlusCycle` set (Phase 2 adds that
+  to the new bosses) - verified with a temporary scratch edit per the plan's Task 5 Step 5,
+  reverted before this commit.
 
 ## [0.34.7] - 2026-09-13
 
