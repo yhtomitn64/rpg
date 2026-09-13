@@ -2,8 +2,10 @@ import { ITEMS } from '../data/items.js';
 import { QUALITY_TIER_MULTIPLIERS } from './itemQuality.js';
 
 export const UPGRADE_BASE_COST = 20;
-// Base NG+0 ceiling. Also the fixed upgrade level scripts/simulate-balance.js
-// tests its "maxed ceiling" builds at, independent of any NG+ cycle.
+// Base NG+0 ceiling. scripts/simulate-balance.js's "maxed ceiling" builds
+// no longer test this flat constant regardless of cycle - maxedUpgrades()
+// there now looks up the real per-cycle cap via getMaxUpgradeLevel(cycle)
+// instead (fixed 2026-09-13, see that file's own comment above maxedUpgrades).
 export const MAX_UPGRADE_LEVEL = 3;
 
 // Reinstated 2026-09-04, partial walk-back of the 2026-09-01 uncap: fully

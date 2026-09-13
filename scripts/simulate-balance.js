@@ -46,7 +46,7 @@ import { rollIncomingDamage, resolveParrySuccess, PARRY_COOLDOWN_MS } from '../j
 import { chooseAction } from './simulateAbilityPolicy.js';
 import { MONSTERS } from '../js/data/monsters.js';
 import { ITEMS } from '../js/data/items.js';
-import { getEquipmentBonuses, upgradeKey, MAX_UPGRADE_LEVEL } from '../js/systems/inventory.js';
+import { getEquipmentBonuses, upgradeKey, getMaxUpgradeLevel } from '../js/systems/inventory.js';
 import { applyXp, xpForLevel } from '../js/systems/leveling.js';
 import { createNewGame } from '../js/state.js';
 import { getBossTierStats, MAX_BOSS_TIER } from '../js/systems/bossTiers.js';
@@ -75,8 +75,18 @@ import { getNgPlusCombatOverrides } from '../js/systems/ngPlus.js';
 // a future report run could compare two rates side by side in one process.
 const PARRY_LAND_RATE_DEFAULT = 0.3;
 
+// Higher than PARRY_LAND_RATE_DEFAULT: a telegraphed special attack gets its
+// own distinct flavor line/icon (2026-09-05 spec) specifically so a real
+// player can react to it, unlike a routine hit. Modeling both at the same
+// flat rate made every superboss look far harder in this file than in real
+// play - confirmed 2026-09-13 by disabling superBossOne's specials outright,
+// which raised its NG+1 win rate from 40% to 87% with nothing else changed.
+// 0.55 is a starting hypothesis, not a measured number - override via
+// --special-parry-rate to explore other assumptions, same as --parry-rate.
+const SPECIAL_PARRY_LAND_RATE_DEFAULT = 0.55;
+
 function parseArgs(argv) {
-  const opts = { trials: 2000, parryRate: PARRY_LAND_RATE_DEFAULT, overrides: {} };
+  const opts = { trials: 2000, parryRate: PARRY_LAND_RATE_DEFAULT, specialParryRate: SPECIAL_PARRY_LAND_RATE_DEFAULT, cycleSweepBossId: null, overrides: {} };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--trials') {
       opts.trials = Number(argv[++i]);
@@ -84,6 +94,11 @@ function parseArgs(argv) {
       opts.parryRate = Number(argv[++i]);
       if (!Number.isFinite(opts.parryRate)) {
         throw new Error(`--parry-rate expects a number, got ${JSON.stringify(argv[i])}`);
+      }
+    } else if (argv[i] === '--special-parry-rate') {
+      opts.specialParryRate = Number(argv[++i]);
+      if (!Number.isFinite(opts.specialParryRate)) {
+        throw new Error(`--special-parry-rate expects a number, got ${JSON.stringify(argv[i])}`);
       }
     } else if (argv[i] === '--set') {
       const [path, rawValue] = argv[++i].split('=');
@@ -101,6 +116,8 @@ function parseArgs(argv) {
       }
       const monsterId = raw.slice(0, eqIndex);
       (opts.overrides[monsterId] ||= {}).specialAttacks = JSON.parse(raw.slice(eqIndex + 1));
+    } else if (argv[i] === '--cycle-sweep') {
+      opts.cycleSweepBossId = argv[++i];
     }
   }
   return opts;
@@ -151,13 +168,20 @@ function makeBuild({ name, level, equipment, equipmentTiers = {}, upgrades = {},
   };
 }
 
-// Every slot at Mythic tier, upgrade level 3 (the actual ceiling this
-// feature is meant to raise) - used by the maxed-Mythic NG+2 build below.
-function maxedUpgrades(equipment, equipmentTiers) {
+// Every slot upgraded to the REAL per-cycle ceiling (getMaxUpgradeLevel),
+// not the flat MAX_UPGRADE_LEVEL this used to hardcode regardless of which
+// cycle the build claims to represent - that mismatch is what hid
+// superBossOne's real NG+2 difficulty curve from every simulator run before
+// 2026-09-13 (see docs/superpowers/specs/2026-09-13-superboss-expansion-design.md's
+// Problem section). Defaults to cycle 0, where getMaxUpgradeLevel(0) equals
+// the old flat MAX_UPGRADE_LEVEL exactly, so existing callers that omit the
+// third argument are unaffected.
+function maxedUpgrades(equipment, equipmentTiers, cycle = 0) {
   const upgrades = {};
+  const level = getMaxUpgradeLevel(cycle);
   for (const [slot, itemId] of Object.entries(equipment)) {
     if (!itemId) continue;
-    upgrades[upgradeKey(itemId, equipmentTiers[slot])] = MAX_UPGRADE_LEVEL;
+    upgrades[upgradeKey(itemId, equipmentTiers[slot])] = level;
   }
   return upgrades;
 }
@@ -271,7 +295,7 @@ const BUILDS = [
       level: 12,
       equipment,
       equipmentTiers,
-      upgrades: maxedUpgrades(equipment, equipmentTiers),
+      upgrades: maxedUpgrades(equipment, equipmentTiers, 2),
       potions: 6,
     });
   })(),
@@ -295,7 +319,7 @@ const BUILDS = [
       level: 12,
       equipment,
       equipmentTiers,
-      upgrades: maxedUpgrades(equipment, equipmentTiers),
+      upgrades: maxedUpgrades(equipment, equipmentTiers, 2),
       potions: 6,
     });
   })(),
@@ -392,7 +416,7 @@ function applyOnHitEffects(build, player, target, damage, damageMultiplier = 1) 
   }
 }
 
-function simulateBattle(build, monsterStats, parryLandRate = PARRY_LAND_RATE_DEFAULT) {
+function simulateBattle(build, monsterStats, parryLandRate = PARRY_LAND_RATE_DEFAULT, specialParryLandRate = SPECIAL_PARRY_LAND_RATE_DEFAULT) {
   const player = {
     hp: build.maxHp, maxHp: build.maxHp,
     attack: build.attack, defense: build.defense, speed: build.speed,
@@ -458,8 +482,9 @@ function simulateBattle(build, monsterStats, parryLandRate = PARRY_LAND_RATE_DEF
       // Rolled once per resolved monster turn - see this function's own
       // header comment for why there's no separate windup-start roll here.
       const special = rollSpecialAttack(monster.specialAttacks);
+      const effectiveParryRate = special ? specialParryLandRate : parryLandRate;
       let result;
-      if (parryCooldownMs <= 0 && Math.random() < parryLandRate) {
+      if (parryCooldownMs <= 0 && Math.random() < effectiveParryRate) {
         parryCooldownMs = PARRY_COOLDOWN_MS;
         const { damage } = rollIncomingDamage(monster, player, Math.random);
         result = resolveParrySuccess(monster, damage);
@@ -567,7 +592,7 @@ function simulateBattle(build, monsterStats, parryLandRate = PARRY_LAND_RATE_DEF
   return { outcome: 'stalemate', hpLeft: player.hp / player.maxHp, potionsUsed, ticks: MAX_TICKS, specialAttacksLanded, specialAttacksParried };
 }
 
-function runMatchup(build, monsterStats, trials, parryLandRate) {
+function runMatchup(build, monsterStats, trials, parryLandRate, specialParryLandRate) {
   let wins = 0;
   let stalemates = 0;
   let hpLeftOnWin = 0;
@@ -576,7 +601,7 @@ function runMatchup(build, monsterStats, trials, parryLandRate) {
   let specialAttacksParried = 0;
 
   for (let i = 0; i < trials; i++) {
-    const result = simulateBattle(build, monsterStats, parryLandRate);
+    const result = simulateBattle(build, monsterStats, parryLandRate, specialParryLandRate);
     if (result.outcome === 'won') {
       wins++;
       hpLeftOnWin += result.hpLeft;
@@ -601,6 +626,58 @@ function runMatchup(build, monsterStats, trials, parryLandRate) {
   };
 }
 
+// For a given superboss id, builds a small level/upgrade-level matrix per
+// NG+ cycle from 0 to 4: "cycle-start gear" (full iron/Superior-tier shop
+// gear, upgrade level 0, a level a few above the previous cycle's expected
+// finish) through "cycle-ceiling gear" (Mythic everywhere, upgraded to
+// getMaxUpgradeLevel(cycle)). First-pass level numbers below are a rough,
+// rounded-down extrapolation from Timothy's own save (entered NG+2 at level
+// 17, beat superBossOne's NG+2 fight comfortably at level 19-20), spread
+// across all five cycles by feel rather than fit to any precise curve - e.g.
+// cycle 2's own entries below are 15/18, not a precise 17/19-20 - refine
+// once more real telemetry exists for the new bosses this tool is meant to
+// validate.
+const CYCLE_SWEEP_LEVELS = { start: [8, 12, 15, 17, 19], ceiling: [10, 15, 18, 20, 22] };
+
+function runCycleSweep(bossId, trials, parryRate, specialParryRate) {
+  const baseMonster = MONSTERS[bossId];
+  if (!baseMonster) throw new Error(`--cycle-sweep: unknown monster id '${bossId}'`);
+
+  const equipment = {
+    weapon: 'ironSword', head: 'ironHelm', body: 'ironArmor', legs: 'ironGreaves',
+    accessory: 'powerRing', ring1: 'emberRing', ring2: 'windfuryRing',
+  };
+
+  console.log(`\n=== Cycle sweep: ${baseMonster.name} ===`);
+  for (let cycle = 0; cycle <= 4; cycle++) {
+    const monsterStats = { ...baseMonster, ...getNgPlusCombatOverrides(baseMonster, cycle) };
+    console.log(`\n-- NG+${cycle} (hp ${monsterStats.hp}, atk ${monsterStats.attack}, def ${monsterStats.defense}) --`);
+
+    const startBuild = makeBuild({
+      name: `cycle-start (L${CYCLE_SWEEP_LEVELS.start[cycle]})`,
+      level: CYCLE_SWEEP_LEVELS.start[cycle],
+      equipment: { weapon: 'ironSword', head: 'ironHelm', body: 'ironArmor', legs: 'ironGreaves', accessory: 'powerRing' },
+      equipmentTiers: { weapon: 'superior', head: 'superior', body: 'superior', legs: 'superior', accessory: 'superior' },
+      upgrades: {},
+      potions: 6,
+    });
+    const ceilingTiers = { weapon: 'mythic', head: 'mythic', body: 'mythic', legs: 'mythic', accessory: 'mythic', ring1: 'mythic', ring2: 'mythic' };
+    const ceilingBuild = makeBuild({
+      name: `cycle-ceiling (L${CYCLE_SWEEP_LEVELS.ceiling[cycle]})`,
+      level: CYCLE_SWEEP_LEVELS.ceiling[cycle],
+      equipment,
+      equipmentTiers: ceilingTiers,
+      upgrades: maxedUpgrades(equipment, ceilingTiers, cycle),
+      potions: 6,
+    });
+
+    for (const build of [startBuild, ceilingBuild]) {
+      const r = runMatchup(build, monsterStats, trials, parryRate, specialParryRate);
+      console.log(`  ${build.name.padEnd(28)} win ${(r.winRate * 100).toFixed(0)}%  hp-left ${(r.avgHpLeftOnWin * 100).toFixed(0)}%  potions ${r.avgPotions.toFixed(1)}`);
+    }
+  }
+}
+
 // --- Report ------------------------------------------------------------
 
 function pct(value) {
@@ -608,7 +685,12 @@ function pct(value) {
 }
 
 function main() {
-  const { trials, overrides, parryRate } = parseArgs(process.argv.slice(2));
+  const { trials, overrides, parryRate, specialParryRate, cycleSweepBossId } = parseArgs(process.argv.slice(2));
+
+  if (cycleSweepBossId) {
+    runCycleSweep(cycleSweepBossId, trials, parryRate, specialParryRate);
+    return;
+  }
 
   const monsters = {};
   for (const id of MATCHUPS) {
@@ -677,7 +759,7 @@ function main() {
   console.log('-'.repeat(88));
   for (const build of BUILDS) {
     for (const id of [...MATCHUPS, ...SUPER_BOSS_MATCHUP_IDS, ...BOSS_TIER_MATCHUP_IDS, ...NG_PLUS_MATCHUP_IDS, ...SUPER_BOSS_NG_PLUS_MATCHUP_IDS]) {
-      const r = runMatchup(build, monsters[id], trials, parryRate);
+      const r = runMatchup(build, monsters[id], trials, parryRate, specialParryRate);
       const stalemateNote = r.stalemateRate > 0 ? `  (stalemate ${pct(r.stalemateRate)})` : '';
       const specialNote = (r.specialAttacksLanded + r.specialAttacksParried) > 0
         ? `  (special landed ${r.specialAttacksLanded}, parried ${r.specialAttacksParried})`

@@ -21,6 +21,7 @@ import { canoeDungeonMap } from './maps/toolDungeons/canoeDungeon.js';
 import { portalDungeonMap } from './maps/toolDungeons/portalDungeon.js';
 import { TOOL_DUNGEON_ENTRANCES } from './data/toolDungeons.js';
 import { SUPER_BOSSES } from './data/superBosses.js';
+import { isSuperBossDebuted, getSuperBossNotYetMessage } from './systems/superBossGates.js';
 import { centerMap } from './maps/wilderness/center.js';
 import { northMap } from './maps/wilderness/north.js';
 import { southMap } from './maps/wilderness/south.js';
@@ -86,7 +87,15 @@ import * as mechanicExplainerScreen from './screens/mechanicExplainerScreen.js';
 import { ABILITY_EXPLAINERS } from './data/abilityExplainers.js';
 
 import { superBossOneDungeonMap } from './maps/superBosses/superBossOneDungeon.js';
+import { superBossTwoMap } from './maps/superBosses/superBossTwo.js';
+import { superBossThreeMap } from './maps/superBosses/superBossThree.js';
+import { superBossFourMap } from './maps/superBosses/superBossFour.js';
+import { superBossFiveMap } from './maps/superBosses/superBossFive.js';
 const MAPS = {
+  superBossFive: superBossFiveMap,
+  superBossFour: superBossFourMap,
+  superBossThree: superBossThreeMap,
+  superBossTwo: superBossTwoMap,
   superBossOneDungeon: superBossOneDungeonMap,
   town: townMap,
   dungeon: dungeonMap,
@@ -677,13 +686,22 @@ function handleTileAction(action) {
   }
   if (action === 'superBossBattle') {
     const superBoss = findSuperBossAt(state.map, state.position.x, state.position.y);
-    if (superBoss) handleEncounter([superBoss.monsterId]);
+    if (!superBoss) return;
+    if (!isSuperBossDebuted(superBoss, state.ngPlusCycle)) {
+      showFlavorBanner(getSuperBossNotYetMessage());
+      return;
+    }
+    handleEncounter([superBoss.monsterId]);
     return;
   }
   if (action === 'enterSuperBossDungeon') {
     const superBoss = findSuperBossAt(state.map, state.position.x, state.position.y);
-    if (superBoss) return enterMap(superBoss.dungeonMapId);
-    return;
+    if (!superBoss) return;
+    if (!isSuperBossDebuted(superBoss, state.ngPlusCycle)) {
+      showFlavorBanner(getSuperBossNotYetMessage());
+      return;
+    }
+    return enterMap(superBoss.dungeonMapId);
   }
   if (action === 'exitMiniDungeon') return handleExitMiniDungeon();
   if (action === 'collectTreasure') return handleTreasureFound();

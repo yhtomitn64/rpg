@@ -266,3 +266,118 @@ final, per this repo's standing convention (see this doc's own
   rejected above; the per-cycle upgrade cap already provides the
   needed headroom, which is the core finding this entire doc is built
   on.
+
+## Validation results (implementation)
+
+Task 9 ran `node scripts/simulate-balance.js --cycle-sweep <bossId>
+--trials 2000` for all four new bosses and read each one's own
+debut-cycle rows against this doc's Phase 2 target bands (cycle-start:
+~15-30% avg HP remaining on a win, heavy potions, a real non-trivial
+loss rate; cycle-ceiling: a clear win with real resource spend, not a
+near-zero-cost win). Two of the four needed a retune; two did not.
+Full sweep output for all four (plus a superBossOne control run) is in
+`task-9-report.md`.
+
+**Cross-boss finding on the cycle-start row, before the per-boss
+notes**: every one of the four new bosses' own debut-cycle
+cycle-start row measured a literal 0.00% win rate (0/2000) — and so
+did a control run of the already-shipped, twice-retuned `superBossOne`
+at its own debut cycle (NG+0), also 0.00%. That's not four coincident
+mistunings; it's this doc's own Phase 2 bullet pointing the 15-30%
+band at the wrong row. `monsters.js`'s `superBossOne` comment (the
+"comparable... bar" this doc's cycle-start bullet cites) records that
+the 15-30% figure was hit by the *maxed Mythic L12 + rings build*,
+while a "veteran L11 (full iron)" build — the closer analogue to this
+tool's cycle-start tier — "lost outright (0%)" in that same original
+validation. So the 15-30% band belongs to a ceiling-tier build, not
+the cycle-start-tier build this doc's bullet attaches it to. No retune
+was made to chase this — it's a target-row mislabel, not a stat
+problem, and is flagged here for a future doc correction rather than
+spent against any boss's 2-pass cap. Separately, the sweep's
+cycle-ceiling builds are constructed with a fixed `potions: 6`, so no
+row can ever report more than 6 potions used — several ceiling rows
+below read as "near-saturated" at 5.5-6.0 rather than literally
+capped, but the tool as built cannot distinguish "used all it had" from
+"would have used more"; this doc's "up to ~20 potions is fine" ceiling
+is therefore not directly testable with this tool in its current form.
+
+**Calibration warning on the cycle-ceiling row.** The same `superBossOne`
+control's *cycle-ceiling* row is itself unreliable, not just its
+cycle-start row above. `task-9-report.md` recorded 0.30% win at its own
+NG+0 debut cycle; a follow-up full `--cycle-sweep superBossOne` run
+(all five cycles) read essentially the same low number everywhere else
+too — 0.00% at NG+1, NG+2, NG+3, and NG+4. That directly contradicts
+this project's own ground truth: the repo owner's real NG+2 character
+beat `superBossOne` at 100% HP remaining (this doc's Problem section)
+— the exact fight this tool's NG+2 cycle-ceiling row reports as a
+literal 0% win rate. That gap means the `--cycle-sweep` tool's
+`cycle-ceiling` build/level assumptions still under-model real player
+performance by a wide margin, on the one data point where it can be
+checked against reality at all. Two candidates are already known and
+unaccounted for: sustained buff-tonic uptime, and the flat `potions: 6`
+budget every sweep build uses (noted above) versus this doc's own "up
+to ~20 potions is fine" design goal — neither is modeled. Consequently,
+this pass's three retunes (`superBossThree`/`Four`/`Five`, each cut
+*down* based on this same tool reporting near-0% win rates at their own
+debut-cycle ceiling row) are low-confidence in the direction of the
+cut: expect them to need retuning **up**, not further down, once a real
+player actually fights them post-placement — treat them as a
+first-pass floor to react to, not validated final numbers.
+
+**superBossTwo** (debuts NG+1) — no retune. Own debut-cycle
+cycle-ceiling row: 74.30% win / 36.27% avg HP remaining on a win / 5.59
+of 6 potions used — a clear win with real, near-saturated resource
+spend, matching the cycle-ceiling target directly. Cycle-start row:
+0.00% win / 0.00% hp-left / 1.00 potions, consistent with the
+cross-boss finding above rather than a boss-specific problem. Left
+unchanged from Task 7's first pass (hp 1100/atk 60/def 21).
+
+**superBossThree** (debuts NG+2) — retuned ONCE. First pass candidate
+(hp 800/atk 70/def 19) measured 0.00% win / 4.19 of 6 potions used at
+its own NG+2 debut-cycle ceiling row — a losing grind the maxed L18
+build couldn't close even while spending most of its potions, not a
+burst-death, so both `hp` and `attack` came down together: hp
+800→640 (-20%), attack 70→60 (-14%), defense untouched. Re-running
+landed the same row at 33.30% win / 26.50% avg HP remaining on a win /
+5.66 of 6 potions used — a real win with heavy resource spend, inside
+the cycle-ceiling target. One retune pass was enough; the second pass
+budget was not used.
+
+**superBossFour** (debuts NG+3) — retuned TWICE, still below target
+after both passes. First pass candidate (hp 563/atk 77/def 17)
+measured 0.20% win / only 0.87 of 6 potions used at its own NG+3
+debut-cycle ceiling row — a near-instant burst death (dying before the
+sim's potion-threshold check fires), the same failure mode
+`superBossOne`'s own reverted first retune pass hit. Fix: attack down,
+hp untouched — 77→58 (-25%). Re-running showed potions jump to 5.52/6
+(the burst-death symptom gone) but win rate barely moved (0.50%) — now
+a losing grind instead of an instant kill. Second pass: hp down too,
+attack held at 58 — 563→480 (-15%). Re-running landed 7.70% win /
+20.60% avg HP remaining on a win / 5.46 of 6 potions used — a real,
+if narrow, win with heavy resource spend. This is not the 0%/100%
+failure mode the brief flags as "badly off," but the win rate is still
+on the low side of "clear win." Two passes is this task's own cap;
+left as-is for Timothy's real playtesting rather than a third guess,
+same as every prior superboss/dragon retune in this project's history.
+
+**superBossFive** (debuts NG+4, the hardest of this pass's four) —
+retuned TWICE, still NOT fixed after both passes (flagged, not
+resolved). First pass candidate (hp 406/atk 82/def 16) measured 0.30%
+win at its own NG+4 debut-cycle ceiling row. Fix: attack down, hp
+untouched — 82→59 (-28%). Re-running left the debut-cycle win rate
+essentially unchanged (0.00% at 2000 trials, 3.02 of 6 potions used) —
+while every earlier, non-debut cycle jumped toward a 100% win rate, a
+direct consequence of this boss's own atk/def NG+ multiplier (×2.44 at
+cycle 4 vs ×1 at cycle 0) compounding faster than any of the other
+three bosses. Second pass: attack down again, hp still untouched —
+59→48 (-19% more, -41% cumulative from the original 82). Re-running
+still landed the own-debut-cycle ceiling row at 0.50% win / 8.86% avg
+HP remaining on a win / 5.96 of 6 potions used — essentially
+unwinnable even at maxed ceiling gear, the 0%-ish failure mode the
+brief explicitly calls "badly off." Two passes is this task's own cap;
+per the brief's own instruction, this is left as-is rather than
+iterated further. A future pass should consider cutting `hp` instead
+of (or alongside) `attack` — attack-only cuts already made every
+earlier cycle nearly free, so the next lever to try is different from
+the one this task used twice, once Timothy has actually placed and
+fought it for real.

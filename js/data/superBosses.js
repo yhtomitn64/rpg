@@ -40,4 +40,16 @@ export const SUPER_BOSSES = {
   superBossOne: {
     id: 'superBossOne', monsterId: 'superBossOne', screenId: 'farSoutheast', x: 15, y: 9, hasDungeon: true, dungeonMapId: 'superBossOneDungeon',
   },
+  superBossTwo: {
+    id: 'superBossTwo', monsterId: 'superBossTwo', screenId: 'farEast', x: 14, y: 16, hasDungeon: true, dungeonMapId: 'superBossTwo',
+  },
+  superBossThree: {
+    id: 'superBossThree', monsterId: 'superBossThree', screenId: 'northNortheast', x: 4, y: 12, hasDungeon: true, dungeonMapId: 'superBossThree',
+  },
+  superBossFour: {
+    id: 'superBossFour', monsterId: 'superBossFour', screenId: 'north', x: 14, y: 5, hasDungeon: true, dungeonMapId: 'superBossFour',
+  },
+  superBossFive: {
+    id: 'superBossFive', monsterId: 'superBossFive', screenId: 'westSouthwest', x: 19, y: 19, hasDungeon: true, dungeonMapId: 'superBossFive',
+  },
 };

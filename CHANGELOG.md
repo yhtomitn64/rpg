@@ -24,6 +24,253 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.35.3] - 2026-09-13
+
+### Added
+- **Terrain painter: order-independent tool-progression checking.** The
+  wilderness "Check Map"'s `checkProgression()`
+  (`tools/terrain-painter/reachability.js`) is now a fixed-point/
+  iterative-unlock algorithm instead of a fixed axe→pick→canoe→portal→dragon
+  staged check - any order that actually works is recognized as sound, and a
+  genuine deadlock (no order works) is reported by naming every stuck
+  dungeon, not just the first broken "stage."
+- **Terrain painter: dungeon-interior "Check Map," animated.** A single
+  flood-fill from the door/entrance tile (`checkDungeonMap()` in
+  `tools/terrain-painter/painter.js`) confirms every walkable tile in a
+  loaded dungeon/mini-dungeon map is reachable - no tool-gating inside a
+  dungeon interior, so this is much simpler than the wilderness check. The
+  check animates outward from the door one BFS layer at a time (teal =
+  explored so far), with a persistent speed slider next to the button
+  controlling tiles-revealed-per-frame; unreachable tiles are then tinted
+  magenta, same visual language as the wilderness check's frontier tint.
+- **Terrain painter: unsaved-changes indicator + export prominence.** A
+  persistent "N unsaved changes" counter (`#unsavedChangesStatus`),
+  `#exportAllBtn` glows/pulses while dirty, and a "↓ Save" button
+  scroll-and-flashes the export controls into view.
+- **Terrain painter: existing superboss dungeons are now selectable in the
+  Map dropdown.** All five superboss dungeon files
+  (`js/maps/superBosses/*.js`) were missing from `SINGLE_MAPS` - only a
+  brand-new dungeon created via "New Dungeon" in that same browser session
+  ever got added there, and that's lost on reload. Without this, neither
+  the order-independent progression check nor the new dungeon-interior
+  Check Map above could actually be pointed at `superBossFive`'s known-
+  broken map at all. Registered from `SUPER_BOSSES`' own `dungeonMapId`
+  field (every existing file follows `dungeonMapId`'s name exactly - see
+  `js/maps/superBosses/superBossFive.js` etc.), *not* as `isNewDungeon` -
+  these files already exist, so saving them goes through the new direct-
+  to-disk save path below, not "Save New Dungeon to Server."
+- **Terrain painter: existing single maps (dragon/tool/mini/superboss
+  dungeons) now save straight to disk, one click, no manual paste.**
+  Raised live: repainting `superBossFive` and then hitting the export
+  button "just shows me the stuff to export" instead of actually saving -
+  right, that button only ever copied `LEGEND`/`ROWS` to the clipboard for
+  hand-pasting into the file, the one save path these dungeon types never
+  had (bulk export only covers wilderness screens; "Save New Dungeon to
+  Server" only applies to a dungeon that doesn't have a file yet). New
+  `/api/patch-single-map` server endpoint (`tools/terrain-painter/
+  server.js`) patches an existing single map's `LEGEND`/`ROWS` block in
+  place, the same way `/api/patch-wilderness` already does per screen -
+  validated against a fixed `SINGLE_MAP_FILES` table (the five superboss
+  dungeons included, derived from `SUPER_BOSSES` the same way the
+  dropdown fix above is), never a raw path from the request. The export
+  button now reads "Save to Server" and writes directly to disk instead
+  of copying to the clipboard whenever a real file + the authoring server
+  are both available; the "↓ Save" button performs the same save (not
+  just a scroll-and-flash) in that case, and both fall back to the old
+  copy-to-clipboard behavior for wilderness screens or without the server
+  running.
+
+### Fixed
+- **`superBossFive`'s dungeon is now fully reachable, guardian included.**
+  Timothy repainted the single broken connection himself, live in the
+  terrain painter, using the new dungeon-interior Check Map above to find
+  exactly where the path was cut (one wall tile turned back into floor) -
+  confirmed by both the new Check Map (0 unreachable tiles) and
+  `npm run test` (`tests/superBosses.test.js`'s `assertFullyReachable`,
+  previously the one known failure on this branch, now passing). See the
+  correction note below for how much worse this bug actually was than
+  first logged.
+
+### Not yet built (raised the same session, tracked for follow-up)
+- The wilderness "Check Map"'s own reveal animation - only the
+  dungeon-interior check above got one. The order-independent rewrite above
+  turned wilderness progression checking into a fixed-point loop (a full
+  re-flood per unlock pass), and animating that coherently is a design
+  question (how to show N successive floods against a growing passable
+  set), not just a rendering one the way the single-flood dungeon check
+  was - scoped out rather than rushed.
+
+### Correction to the 0.35.2 entry below
+Running the new dungeon-interior Check Map above directly against
+`superBossFiveMap` found the known bug there is considerably worse than
+originally logged: **558 of 650 walkable tiles are unreachable from the
+door, including the `guardian` tile itself** - not just the one stray tile
+at (45,0) next to it. `npm test`'s `assertFullyReachable` only ever reported
+that one tile because it uses `assert.ok` inside its scan loop and throws
+at the first offender in raster order, masking everything after it. As
+currently painted, this dungeon is unwinnable, not just cosmetically messy.
+Still Timothy's map content to fix, not a code bug.
+
+## [0.35.2] - 2026-09-13
+
+### Added
+- **Terrain painter: superboss placement + dungeon-authoring quality-of-life pass.**
+  Raised live while Timothy placed all four new superbosses in the world:
+  (1) Superboss map markers now labeled `SB1`-`SB5` by registry order instead of the
+  first two letters of their id (every id started `superBoss`, so every marker read
+  "SU" - indistinguishable once a second superboss existed). (2) "Check Map" now also
+  verifies every *placed* superboss marker is reachable with every tool, not just the
+  axe → pick → canoe → portal → dragon chain - this was silently unchecked before.
+  (3) "Save New Dungeon to Server" gained an optional "Hook up to superboss" dropdown
+  that sets `dungeonMapId`/`hasDungeon` in `js/data/superBosses.js` automatically -
+  previously that link had to be hand-edited after every dungeon save, a gap Timothy
+  hit firsthand authoring `superBossTwo`'s dungeon.
+
+### Fixed
+- **All five superbosses are now placed in the world** (`js/data/superBosses.js`):
+  `superBossOne` was already placed; `superBossTwo`-`Five` now have real
+  `screenId`/`x`/`y` (behind water/mountain/thicket, confirmed reachable with every
+  tool via the new Check Map coverage above) and each has its own dungeon
+  (`js/maps/superBosses/superBossTwo.js` through `superBossFive.js`, registered in
+  `js/main.js` and in `tests/superBosses.test.js`'s structural coverage).
+  **`superBossFive`'s dungeon has a known bug**: tile (45, 0), next to the guardian,
+  is walkable but unreachable from the entrance - `npm run test` catches this
+  (`tests/superBosses.test.js`'s reachability check) and will keep failing until
+  the map is repainted to connect it. Left as-is rather than hand-patched, since
+  the map's actual layout is Timothy's own authoring work.
+
+### Not yet built (raised the same session, tracked for follow-up)
+- Dungeon-interior "Check Map" (door → guardian reachability, mirroring the
+  wilderness check) - `superBossFive`'s bug above is exactly what this would have
+  caught live in the editor instead of via `npm test` after the fact.
+  - Order-independent tool-progression checking (iteratively unlock whatever's
+  currently reachable instead of assuming a fixed axe→pick→canoe→portal script).
+  - An animated visualization of the reachability check itself (with a speed
+  slider) - explicitly requested as a "this would be cool" addition, not required.
+  - Live "N unsaved changes" indicator + a more prominent/relocated export button.
+  - Support for multiple `exit` tiles per dungeon (one designated `startPosition`,
+  any of them a valid way out) - see `docs/superpowers/BACKLOG.md`'s 2026-09-13
+  entry for why this is purely an editor-side restriction today, not a game-engine
+  one.
+
+## [0.35.1] - 2026-09-13
+
+### Fixed
+- **Fix wave from the final whole-branch review of `feature/superboss-expansion`.**
+  Ten findings addressed: (1) `js/data/playerChangelog.js`'s 0.35.0 entry claimed
+  four new superbosses were reachable in New Game+, which is false until they're
+  placed (`screenId`/`x`/`y` are still `null`) - reworded to match this file's own
+  "groundwork shipped, nothing to notice yet" convention (see 0.34.7/0.34.8).
+  (2) `tests/superBosses.test.js` now asserts a `SUPER_BOSSES` entry's
+  `screenId`/`x`/`y` are consistently all-null or all-non-null, never a mix.
+  (3) The design spec's "Validation results (implementation)" section now records
+  that the `superBossOne` control's *cycle-ceiling* row also reads ~0% win rate at
+  every NG+ cycle tested, not just its cycle-start row - contradicting the real
+  NG+2 100%-HP win this whole investigation started from, and flagging this pass's
+  three down-retunes (`superBossThree`/`Four`/`Five`) as low-confidence in the cut
+  direction. (4) `js/data/monsters.js`'s `superBossFive` comment clarified: it's
+  the hardest of this pass's four only at its own debut cycle - at any fixed NG+
+  cycle it's actually the weakest of all five superbosses, a consequence of its two
+  attack cuts. (5) `js/systems/inventory.js`'s stale comment describing the
+  now-fixed flat-upgrade-cap bug updated to reflect current reality. (6) Removed
+  the now-unused `MAX_UPGRADE_LEVEL` import from `scripts/simulate-balance.js`.
+  (7) `CHANGELOG.md`'s 0.34.7 entry's special-attack list was missing `stun`;
+  added. (8) `js/systems/superBossGates.js`'s `isSuperBossDebuted` now uses `?? 0`
+  instead of `|| 0` to state its actual intent (no behavior change, since the field
+  is never a negative number when present). (9) `scripts/simulate-balance.js`'s
+  `CYCLE_SWEEP_LEVELS` doc comment softened to admit it's a rough, rounded-down
+  extrapolation rather than a precise per-cycle fit. (10) Recorded three follow-up
+  threads (simulator potion/buff-tonic modeling gap, missing cycle-sweep
+  midpoints, `debutNgPlusCycle`'s open-floor gating) in
+  `docs/superpowers/BACKLOG.md` so they aren't lost.
+- **`js/data/playerChangelog.js`'s guard comment above the 0.35.0 entry was left
+  stale by finding (1) above.** It still warned "this entry ... is only accurate
+  once that placement lands; don't let it ship ... ahead of that", contradicting
+  the entry it documents, which finding (1) had already reworded to the accurate
+  "groundwork shipped, nothing to notice yet" framing. Reworded to stop telling
+  the next session to hold the branch back for a reason that no longer applies.
+
+## [0.35.0] - 2026-09-13
+
+### Added
+- **Phase 2 of the superboss expansion ships: four new superbosses, gated to NG+ cycles 1–4** (`superBossTwo` through `superBossFive`), completing `docs/superpowers/plans/2026-09-13-superboss-expansion.md` end to end. Phase 0 (0.34.7) fixed two bugs in `scripts/simulate-balance.js`'s balance simulator (a cycle-blind `maxedUpgrades` that ignored the real per-cycle upgrade cap, and special attacks rolling the same parry rate as routine hits instead of a higher, reactable one) and added its `--cycle-sweep` mode; Phase 1 (0.34.8) added the `isSuperBossDebuted`/`getSuperBossNotYetMessage` NG+-cycle gating plumbing in `js/systems/superBossGates.js` and wired it into `main.js`'s superboss tile actions. Both were prerequisites with no player-visible effect on their own, since no superboss yet set a `debutNgPlusCycle`. This release is where that plumbing starts doing something: the four registry entries below are the first to actually use it. See `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md` for the full design spec, including its "Validation results (implementation)" section for the `--cycle-sweep` tuning numbers behind each boss below.
+- **Four new superboss monster entries added (`superBossTwo` through `superBossFive`).**
+  Each debuts at its own NG+ cycle (cycles 1–4 respectively) and guarantees a unique `apex`-tier item drop.
+  Base stats are first-pass, deliberately tuned to be shorter fights with harder-hitting attacks than
+  `superBossOne`'s own cycle-scaled equivalents. Validate and retune with `scripts/simulate-balance.js --cycle-sweep`
+  before final placement.
+- **`guardiansLastStand` unique item added to the superboss loot pool.**
+  A new guaranteed drop for the cycle-4 superboss (superBossFive), combining `thornsPercent` (30) and `debuffDurationPercent` (25) — both existing stat fields already wired through equipment bonuses. Includes a placeholder name to be renamed before final release.
+- **Four new `SUPER_BOSSES` registry entries added (`superBossTwo` through `superBossFive`).**
+  Each starts inert (`screenId: null`, `x: null`, `y: null`) following the same pattern as `superBossOne` before placement via the terrain painter. All default to `hasDungeon: false` (wilderness encounters, not dungeon-gated); Timothy can convert any to dungeon entrances later using the existing terrain-painter tooling with zero new code. Each entry carries a `debutNgPlusCycle` field (1–4 respectively) gating when it can be encountered, consistent with Task 5's `isSuperBossDebuted` predicate wiring.
+
+### Fixed
+- **`superBossThree` and `superBossFour` retuned after `--cycle-sweep` validation showed their first-pass stats badly missing the design goal's target bands at their own debut cycle.**
+  `superBossThree` (debuts NG+2) was a losing grind at cycle-ceiling gear (0% win rate despite heavy potion use) — `hp` 800→640 and `attack` 70→60 brought it to a real win with heavy resource spend. `superBossFour` (debuts NG+3) was a near-instant burst-death at cycle-ceiling gear (0.2% win, almost no potions used) — `attack` 77→58 fixed the burst-death shape, then `hp` 563→480 (a second pass) raised its win rate to a narrow but real win. `superBossFive` (debuts NG+4) also got a two-pass `attack` retune (82→59→48) but is still essentially unwinnable at its own debut cycle's ceiling gear after both passes — left as-is for real playtesting rather than a third guess, per this plan's two-pass cap. `superBossTwo` needed no change. See `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`'s "Validation results (implementation)" section for full sweep numbers.
+
+## [0.34.8] - 2026-09-13
+
+### Added
+- **`js/systems/superBossGates.js` gates superboss encounters on NG+ cycle progress.**
+  Exports `isSuperBossDebuted(entry, ngPlusCycle)` (pure predicate: returns true iff the
+  entry has no `debutNgPlusCycle` field or the player has reached/exceeded that cycle) and
+  `getSuperBossNotYetMessage()` (the message shown when a superboss is locked). Mirrors the
+  shape of `js/systems/toolGates.js`'s `hasRequiredTool`/`getLockedGateMessage` seam,
+  providing the decision logic that Task 5's wiring to `main.js` will call into. All entries
+  without a `debutNgPlusCycle` field default to being immediately available (cycle >= 0),
+  e.g. `superBossOne` does not have the field and debuts at cycle 0.
+- **`main.js`'s `superBossBattle`/`enterSuperBossDungeon` tile actions now actually gate on
+  `isSuperBossDebuted`.** Previously either branch would happily start the fight or open the
+  dungeon for any superboss found at the player's position, with no NG+ cycle check at all -
+  the predicate above existed but nothing called it yet. Both branches now check
+  `isSuperBossDebuted(superBoss, state.ngPlusCycle)` before doing anything and show
+  `getSuperBossNotYetMessage()`'s flavor banner instead when it's not met. No visible effect
+  yet with real data, since `superBossOne` has no `debutNgPlusCycle` set (Phase 2 adds that
+  to the new bosses) - verified with a temporary scratch edit per the plan's Task 5 Step 5,
+  reverted before this commit.
+
+## [0.34.7] - 2026-09-13
+
+### Added
+- **`scripts/simulate-balance.js` gains a `--cycle-sweep <bossId>` mode.**
+  Instead of the fixed level-12 "maxed" build the existing report used,
+  this runs a small level/gear matrix - "cycle-start" (full iron/Superior
+  shop gear, upgrade level 0, a level a few above the previous cycle's
+  expected finish) through "cycle-ceiling" (Mythic everywhere, upgraded
+  to that cycle's real `getMaxUpgradeLevel(cycle)`) - against a given
+  superboss at each NG+ cycle from 0 to 4. This is the tool the rest of
+  `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`'s
+  plan will use to validate the four new superbosses' stats before they
+  ship, rather than eyeballing a single build/cycle combination. Adds a
+  new `runCycleSweep()` function and a `cycleSweepBossId` option to
+  `parseArgs()`; `main()` dispatches to it and returns early when the
+  flag is present, skipping the full multi-monster report.
+
+### Fixed
+- **`scripts/simulate-balance.js` now models telegraphed special attacks with a
+  separate, higher parry rate.** Superboss special attacks (stun/slow/cooldownOverload)
+  are telegraphed with a distinct flavor line/icon so a real player can react to
+  them, unlike routine hits. The simulator was rolling the exact same `parryLandRate`
+  (default 0.3) for both, making every superboss look far harder in this file than
+  in real play. Testing confirmed the effect size: disabling superBossOne's specials
+  outright raised its NG+1 win rate from 40% to 87% with nothing else changed. Now
+  `simulateBattle()` accepts a 4th parameter `specialParryLandRate` (default 0.55) and
+  uses it when the rolled attack is a special. The CLI accepts `--special-parry-rate`
+  to override the default, same as `--parry-rate`. Motivation: see "Problem" section
+  of `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`.
+- **`scripts/simulate-balance.js`'s `maxedUpgrades()` function now uses the
+  real per-cycle upgrade cap instead of a flat `MAX_UPGRADE_LEVEL`.** The
+  function previously applied upgrade level 3 to every item slot regardless
+  of which NG+ cycle the test build claimed to represent, silently under-
+  gearing the two "maxed Mythic L12 (NG+2, ...)" builds that are meant to
+  test a player at the actual NG+2 gear ceiling. Now `maxedUpgrades()` takes
+  an optional `cycle` parameter (defaulting to 0 for backward compatibility)
+  and calls `getMaxUpgradeLevel(cycle)` to get the correct ceiling - NG+2
+  builds now show upgrade level 7 on every slot instead of 3, correctly
+  exposing the real NG+2 difficulty curve that was masked by the under-
+  gearing. Motivation: see "Problem" section of
+  `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`.
+
 ## [0.34.6] - 2026-09-13
 
 ### Fixed

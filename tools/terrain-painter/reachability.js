@@ -49,38 +49,55 @@ export function computeFrontier(width, height, reached, isPassable) {
   return frontier;
 }
 
-// The staged progression check itself. `entrances` is an ordered list of
-// { id, label, pos: {x,y}|null, unlocks: string[] } - each stage confirms
-// its own entrance is reachable using only what's been unlocked so far,
-// THEN adds its `unlocks` kinds to what's passable for the next stage. This
-// catches a chicken-and-egg gate (a later tool's dungeon sitting behind
-// terrain that only an *earlier* tool clears) that a single "reachable with
-// any combination of tools" check would miss.
+// The progression check itself. `dungeons` is an UNORDERED list of
+// { id, label, pos: {x,y}|null, unlocks: string[] } (a dungeon that doesn't
+// gate any terrain - the dragon dungeon, the portal dungeon - just passes
+// `unlocks: []` and is treated as a plain reachability target). This is a
+// fixed-point/iterative-unlock algorithm, not a search over orderings:
+// starting from `unlockedKinds = toollessKinds`, repeatedly scan every
+// not-yet-unlocked dungeon and unlock any whose entrance has become
+// reachable, adding its `unlocks` kinds and re-flooding: Stop when a full
+// pass unlocks nothing new. Whatever order the dungeons happen to unlock in
+// during that process is a real, playable order - so this reports "sound"
+// whenever every dungeon eventually unlocks, regardless of which one went
+// first. A dungeon that's still locked once the pass stabilizes is a genuine
+// deadlock (or simply hasn't been placed on the map yet - `pos` is null) and
+// is reported by id/label, not by a numbered "stage".
 //
 // isPassable(x, y, unlockedKinds: Set<string>) is caller-defined - it looks
 // up the tile kind, applies entrance-marker/sealed-edge overrides, etc.
-// unlockedKinds always includes toollessKinds and grows by one stage's
-// `unlocks` after that stage passes.
-export function checkProgression({ width, height, town, isPassable, toollessKinds, entrances }) {
+export function checkProgression({ width, height, town, isPassable, toollessKinds, dungeons }) {
   const unlockedKinds = new Set(toollessKinds);
+  const unlocked = new Set();
   let reached = floodFillReachable(width, height, town, (x, y) => isPassable(x, y, unlockedKinds));
 
-  for (let i = 0; i < entrances.length; i++) {
-    const stage = entrances[i];
-    const targetKey = stage.pos ? `${stage.pos.x},${stage.pos.y}` : null;
-    if (!targetKey || !reached.has(targetKey)) {
-      return {
-        ok: false,
-        stageIndex: i,
-        stageId: stage.id,
-        stageLabel: stage.label,
-        reached,
-        frontier: computeFrontier(width, height, reached, (x, y) => isPassable(x, y, unlockedKinds)),
-      };
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const dungeon of dungeons) {
+      if (unlocked.has(dungeon.id)) continue;
+      const key = dungeon.pos ? `${dungeon.pos.x},${dungeon.pos.y}` : null;
+      if (!key || !reached.has(key)) continue;
+      unlocked.add(dungeon.id);
+      for (const kind of dungeon.unlocks) unlockedKinds.add(kind);
+      progressed = true;
     }
-    for (const kind of stage.unlocks) unlockedKinds.add(kind);
-    reached = floodFillReachable(width, height, town, (x, y) => isPassable(x, y, unlockedKinds));
+    if (progressed) {
+      reached = floodFillReachable(width, height, town, (x, y) => isPassable(x, y, unlockedKinds));
+    }
   }
 
-  return { ok: true, stageIndex: null, stageId: null, stageLabel: null, reached, frontier: new Set() };
+  const stuck = dungeons
+    .filter((dungeon) => !unlocked.has(dungeon.id))
+    .map((dungeon) => ({ id: dungeon.id, label: dungeon.label, placed: !!dungeon.pos }));
+
+  if (stuck.length === 0) {
+    return { ok: true, stuck: [], reached, frontier: new Set() };
+  }
+  return {
+    ok: false,
+    stuck,
+    reached,
+    frontier: computeFrontier(width, height, reached, (x, y) => isPassable(x, y, unlockedKinds)),
+  };
 }

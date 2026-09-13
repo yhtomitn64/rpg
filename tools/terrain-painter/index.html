@@ -44,10 +44,26 @@
   #checkControls button { padding: 4px 8px; background: #222; color: #eee; border: 2px solid #444; cursor: pointer; font-family: monospace; }
   #checkStatus.ok { color: #6bbf6b; }
   #checkStatus.fail { color: #e06c6c; }
+  #dungeonCheckControls { margin-top: 8px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  #dungeonCheckControls button { padding: 4px 8px; background: #222; color: #eee; border: 2px solid #444; cursor: pointer; font-family: monospace; }
+  #dungeonCheckStatus.ok { color: #6bbf6b; }
+  #dungeonCheckStatus.fail { color: #e06c6c; }
+  #unsavedChangesStatus { color: #e0c039; }
+  #jumpToExportBtn { padding: 4px 8px; background: #222; color: #eee; border: 2px solid #444; cursor: pointer; font-family: monospace; }
+  @keyframes dirty-glow {
+    0%, 100% { box-shadow: 0 0 0 rgba(224,192,57,0); }
+    50% { box-shadow: 0 0 10px 2px rgba(224,192,57,0.9); }
+  }
+  button.dirty { border-color: #e0c039; animation: dirty-glow 1.6s ease-in-out infinite; }
+  @keyframes export-flash {
+    0%, 100% { box-shadow: 0 0 0 rgba(224,192,57,0); }
+    50% { box-shadow: 0 0 14px 4px rgba(224,192,57,0.9); }
+  }
+  .export-flash { animation: export-flash 0.6s ease-in-out 2; }
   canvas { border: 1px solid #444; cursor: crosshair; display: block; margin-top: 12px; touch-action: none; }
   canvas.placing-dungeon { cursor: cell; }
   .bulk-export-row { margin-top: 12px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
-  .bulk-export-row button { padding: 4px 8px; background: #222; color: #eee; border: 2px solid #444; cursor: pointer; font-family: monospace; }
+  .bulk-export-row button, .bulk-export-row select { padding: 4px 8px; background: #222; color: #eee; border: 2px solid #444; cursor: pointer; font-family: monospace; }
   #exportRow { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
   #exportOutput {
     width: 100%; max-width: 900px; height: 140px; margin-top: 8px;
@@ -80,8 +96,12 @@
   dungeon sitting behind thicket while the axe dungeon itself is
   unreachable) gets caught. Yellow tint = only reachable with some tool,
   red = not reachable even with every tool, magenta = exactly where the
-  first broken stage gets stuck. Dungeon-interior maps don't have their own
-  reachability check yet. "Place Tool Dungeon Entrance"
+  first broken stage gets stuck. Once the tool-gated chain checks out, every
+  placed superboss marker is also checked against "reachable with every
+  tool" (they don't gate further progression, so they aren't part of the
+  staged order above - just verified reachable once you're fully tooled up).
+  Dungeon-interior maps don't have their own reachability check yet.
+  "Place Tool Dungeon Entrance"
   works the same way for whichever tool dungeon is selected in the dropdown
   next to it — copies paste into that entry's <code>screenId</code>/<code>x</code>/<code>y</code>
   in <code>js/data/toolDungeons.js</code>. "Place Super-Boss Marker" is the
@@ -110,7 +130,13 @@
   <code>js/main.js</code> — it also asks for the guardian's monster id
   (a key from <code>MONSTERS</code> in <code>js/data/monsters.js</code>)
   and needs the Node server running (no File System Access fallback,
-  since there's no existing file to patch).
+  since there's no existing file to patch). The "Hook up to superboss"
+  dropdown next to that button is optional but recommended: pick the
+  superboss this dungeon belongs to and saving will also set that
+  entry's <code>dungeonMapId</code> and <code>hasDungeon: true</code> in
+  <code>js/data/superBosses.js</code> automatically - leaving it on
+  "(none)" saves the dungeon file itself but leaves that link for you to
+  add by hand, same as every dungeon before this dropdown existed.
 </p>
 </details>
 <div id="mapControls">
@@ -128,6 +154,8 @@
   <button id="undoBtn" title="Undo the last click/stroke on this map (Ctrl/Cmd+Z)">Undo</button>
   <span id="autosaveStatus"></span>
   <button id="resetFromFilesBtn" title="Discard autosaved changes and reload the real file from disk">Reset from files</button>
+  <span id="unsavedChangesStatus"></span>
+  <button id="jumpToExportBtn" title="Scroll down to the export controls">↓ Save</button>
 </div>
 <div id="dungeonControls" class="wilderness-only">
   <button id="placeDungeonBtn">Place Dungeon Entrance</button>
@@ -151,6 +179,12 @@
   <button id="checkMapBtn">Check Map</button>
   <span id="checkStatus"></span>
 </div>
+<div id="dungeonCheckControls" class="single-map-only">
+  <button id="checkDungeonMapBtn">Check Map</button>
+  <label for="dungeonCheckSpeed" title="How many tiles the check animation reveals per frame - low is slow enough to watch, high is close to instant">Speed:</label>
+  <input type="range" id="dungeonCheckSpeed" min="1" max="200" value="150">
+  <span id="dungeonCheckStatus"></span>
+</div>
 <canvas id="worldCanvas" width="1200" height="880"></canvas>
 <div class="bulk-export-row wilderness-only">
   <button id="chooseRepoBtn">Choose Repo Folder</button>
@@ -161,6 +195,10 @@
   <span id="exportAllStatus"></span>
 </div>
 <div class="bulk-export-row single-map-only new-dungeon-only">
+  <label for="hookUpSuperBossSelect">Hook up to superboss:</label>
+  <select id="hookUpSuperBossSelect">
+    <option value="">(none - standalone dungeon)</option>
+  </select>
   <button id="saveNewDungeonBtn" title="Write this brand-new dungeon to js/maps/superBosses/ and register it in js/main.js (needs the Node authoring server)">Save New Dungeon to Server</button>
   <span id="saveNewDungeonStatus"></span>
 </div>

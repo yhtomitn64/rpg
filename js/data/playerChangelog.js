@@ -5,6 +5,88 @@
 // or care about while playing. Keep it in sync manually: add a new entry
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
+  // The real player-facing entry the 0.35.2 comment below promised: the
+  // blocking reachability bug (superBossFive's dungeon) is fixed and
+  // verified (npm test, plus the terrain painter's own new Check Map) and
+  // this now reaches main. No made-up boss names here - MONSTERS still
+  // has them as "[PLACEHOLDER NAME]" in js/data/monsters.js, an unrelated
+  // and still-open content gap, not something to paper over in this entry.
+  {
+    version: '0.35.3',
+    date: '2026-09-13',
+    highlights: [
+      "New: four more superbosses now roam the world, each guarding its own hidden dungeon - on top of the one that was already out there.",
+    ],
+  },
+  // Internal-only, even though the four new superbosses are now genuinely
+  // placed in the world (screenId/x/y set, dungeons authored) - not
+  // announced yet because superBossFive's dungeon has a known unreachable-
+  // tile bug (npm test catches it) and this hasn't merged to main. Once
+  // fixed and merged, a real player-facing entry belongs here describing
+  // the new superbosses - see the 0.35.0 entry below for a first draft of
+  // that tone, minus its own since-corrected reachability claim.
+  {
+    version: '0.35.2',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: more internal groundwork for the upcoming New Game+ superbosses - still nothing to notice in-game yet.",
+    ],
+  },
+  // Internal-only, same reason 0.34.7/0.34.8 got entries (see this file's
+  // header + those entries' own comments): a fix wave from the final
+  // whole-branch review of the superboss expansion branch - documentation
+  // wording, a test assertion, and code comments corrected (including the
+  // now-stale guard comment just below this entry, on the 0.35.0 entry),
+  // plus one dev-only script's unused import removed. No gameplay code
+  // changed and the four new superbosses are still unplaced (screenId/x/y
+  // still null), so there's nothing new for a player to find in-game.
+  {
+    version: '0.35.1',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some documentation and test cleanup from a final review pass - nothing to notice in-game.",
+    ],
+  },
+  // Written ahead of world placement: as of this commit the four bosses below
+  // are registered in js/data/superBosses.js with screenId/x/y still null (see
+  // CHANGELOG.md's 0.35.0 entry) - placing them in the world is Timothy's own
+  // next step before this branch reaches main. Reworded during the final
+  // whole-branch review (see the 0.35.1 entry above) to match this file's
+  // "groundwork shipped, nothing to notice yet" convention, so it's accurate
+  // to ship as-is even before placement - it no longer claims the bosses are
+  // reachable.
+  {
+    version: '0.35.0',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some behind-the-scenes groundwork for four upcoming superbosses - nothing to find in-game yet, since none of them have been placed in the world.",
+    ],
+  },
+  // Internal-only, same reason 0.34.1-0.34.4 got entries (see this file's
+  // header + those entries' own comments): superboss encounters now have the
+  // plumbing to be locked behind an NG+ cycle threshold (isSuperBossDebuted in
+  // js/systems/superBossGates.js, wired into main.js's tile-action handlers),
+  // but no superboss actually sets a debutNgPlusCycle yet - existing
+  // superBossOne debuts at cycle 0 same as always, so nothing changes for a
+  // player until Phase 2 gives the new bosses a real gated value.
+  {
+    version: '0.34.8',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some internal groundwork for a future superboss feature - nothing to notice in-game yet.",
+    ],
+  },
+  // Internal-only, same reason 0.34.1-0.34.4 got entries (see this file's
+  // header + those entries' own comments): a dev-only balance-tuning tool
+  // (scripts/simulate-balance.js, not shipped in the game itself) got two
+  // bugfixes and a new CLI mode, with no player-visible change.
+  {
+    version: '0.34.7',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some internal balance-tuning tooling updates - nothing to notice in-game.",
+    ],
+  },
   {
     version: '0.34.6',
     date: '2026-09-13',
