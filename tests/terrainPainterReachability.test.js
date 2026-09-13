@@ -206,6 +206,44 @@ test('checkProgression: breaking just one gate downstream only strands the dunge
   }
 });
 
+test('checkProgression: passes records the reached set after each flood, in order, for animating the staged reveal', () => {
+  const g = fill(10, 10, 'grass');
+  for (let y = 0; y < 10; y++) g[y][5] = 'thicket';
+  const positions = { axe: { x: 1, y: 1 }, pick: { x: 8, y: 8 }, canoe: { x: 9, y: 9 }, dragon: { x: 9, y: 0 } };
+  const result = checkProgression({
+    width: 10, height: 10, town: { x: 0, y: 0 }, isPassable: isPassableOver(g),
+    toollessKinds: TOOLLESS_KINDS, dungeons: dungeonsFor(positions),
+  });
+  assert.equal(result.ok, true);
+  assert.ok(Array.isArray(result.passes), 'passes should be an array of Sets');
+  assert.ok(result.passes.length >= 2, 'expected at least the initial toolless flood plus one unlock pass');
+  // First pass is exactly the toolless flood - nothing past the thicket wall yet.
+  assert.ok(result.passes[0].has('0,0'));
+  assert.ok(!result.passes[0].has('8,8'), 'pick dungeon is behind the thicket wall, not reachable toollessly');
+  // Each later pass only grows (never drops a previously-reached tile).
+  for (let i = 1; i < result.passes.length; i++) {
+    for (const key of result.passes[i - 1]) assert.ok(result.passes[i].has(key), `pass ${i} should be a superset of pass ${i - 1}`);
+  }
+  // The final pass matches the overall reached result.
+  assert.deepEqual([...result.passes[result.passes.length - 1]].sort(), [...result.reached].sort());
+});
+
+test('checkProgression: passes are still recorded on a stuck (not ok) result, stopping wherever progression stalls', () => {
+  const g = fill(10, 10, 'grass');
+  for (let y = 4; y <= 6; y++) {
+    for (let x = 4; x <= 6; x++) g[y][x] = 'tree';
+  }
+  g[5][5] = 'grass';
+  const positions = { axe: { x: 5, y: 5 }, pick: { x: 1, y: 1 }, canoe: { x: 2, y: 1 }, dragon: { x: 3, y: 1 } };
+  const result = checkProgression({
+    width: 10, height: 10, town: { x: 0, y: 0 }, isPassable: isPassableOver(g),
+    toollessKinds: TOOLLESS_KINDS, dungeons: dungeonsFor(positions),
+  });
+  assert.equal(result.ok, false);
+  assert.ok(Array.isArray(result.passes));
+  assert.deepEqual([...result.passes[result.passes.length - 1]].sort(), [...result.reached].sort());
+});
+
 test('checkProgression: an unplaced entrance (pos null) is reported stuck with placed:false, other dungeons still resolve', () => {
   const g = fill(10, 10, 'grass');
   const positions = { axe: { x: 1, y: 1 }, pick: null, canoe: { x: 3, y: 1 }, dragon: { x: 4, y: 1 } };

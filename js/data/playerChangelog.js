@@ -5,6 +5,18 @@
 // or care about while playing. Keep it in sync manually: add a new entry
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
+  // Internal-only, same reason 0.34.7/0.34.8 and 0.35.0-0.35.1 got entries
+  // (see this file's header): both changes this version are terrain-
+  // painter (map-editor) tooling used only during development - an
+  // animated wilderness Check Map and a save-flow fix - neither touches
+  // gameplay code or anything a player encounters in-game.
+  {
+    version: '0.35.4',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some map-editor tooling used during development - nothing to notice in-game.",
+    ],
+  },
   // The real player-facing entry the 0.35.2 comment below promised: the
   // blocking reachability bug (superBossFive's dungeon) is fixed and
   // verified (npm test, plus the terrain painter's own new Check Map) and

@@ -24,6 +24,50 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.35.4] - 2026-09-13
+
+### Added
+- **Terrain painter: wilderness "Check Map," animated.** The one item
+  explicitly left undone in 0.35.3 (see that entry's own "Not yet built"
+  note). `checkProgression()` (`tools/terrain-painter/reachability.js`) now
+  also returns `passes` - the `reached` set after each flood, in order
+  (index 0 is the initial toolless flood, each one after it is the re-flood
+  triggered by a dungeon unlocking). `checkMap()`
+  (`tools/terrain-painter/painter.js`) replays those waves on-screen: each
+  wave's *new* tiles reveal one-by-one in BFS order (the same "Set
+  iteration order IS discovery order" trick `checkDungeonMap()` uses) with
+  the same teal "exploring" tint, settling into the real free/tool-gated
+  tint once the wave finishes, then a brief pause before the next wave
+  starts. A wave that unlocks nothing new (the portal/dragon dungeons,
+  which don't gate any terrain) has an empty delta and is skipped
+  instantly. A new `checkMapSpeed` slider next to the "Check Map" button
+  controls tiles-per-frame, mirroring `dungeonCheckSpeed`. Once every wave
+  settles, the overlay swaps to the exact same final
+  toollessReached/tooledReached/frontier tinting and verdict text this
+  function already produced before the animation existed - the check
+  itself is unchanged, only how the result is revealed.
+
+### Fixed
+- **Terrain painter: "Save New Dungeon to Server" re-prompted on every
+  save, not just the first.** `SINGLE_MAPS[key].isNewDungeon` never
+  flipped to `false` after a successful `/api/create-dungeon` save, and
+  the server's `SINGLE_MAP_FILES` registry (which `/api/patch-single-map`
+  checks) was only populated once at startup, so a dungeon created this
+  session couldn't be patched yet even if the client tried. Every save
+  re-ran the whole create-dungeon flow - re-prompting for
+  `guardianMonsterId` and rewriting the whole file from scratch - even on
+  the Nth save of an already-registered dungeon. Fixed on both sides:
+  `handleCreateDungeon` (`tools/terrain-painter/server.js`) now adds the
+  new file to `SINGLE_MAP_FILES` immediately after writing it, and
+  `saveNewDungeonBtn`'s success handler (`tools/terrain-painter/
+  painter.js`) flips `isNewDungeon` to `false`, hides the "Save New
+  Dungeon to Server" control, and relabels the normal export button to
+  "Save to Server" - so every save after the first goes through the
+  existing lightweight `/api/patch-single-map` path (LEGEND/ROWS only, no
+  prompt), same as any other existing single map. Verified live: create a
+  dungeon, save it once (one prompt), edit a tile, save again (zero
+  prompts, file patched on disk).
+
 ## [0.35.3] - 2026-09-13
 
 ### Added

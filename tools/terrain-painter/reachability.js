@@ -66,10 +66,15 @@ export function computeFrontier(width, height, reached, isPassable) {
 //
 // isPassable(x, y, unlockedKinds: Set<string>) is caller-defined - it looks
 // up the tile kind, applies entrance-marker/sealed-edge overrides, etc.
+// `passes` records the `reached` set after each flood, in order (index 0 is
+// the initial toolless flood, before any dungeon unlocks) - lets a caller
+// (painter.js's animated wilderness Check Map) replay the staged unlock
+// process visually, wave by wave, rather than only seeing the final result.
 export function checkProgression({ width, height, town, isPassable, toollessKinds, dungeons }) {
   const unlockedKinds = new Set(toollessKinds);
   const unlocked = new Set();
   let reached = floodFillReachable(width, height, town, (x, y) => isPassable(x, y, unlockedKinds));
+  const passes = [reached];
 
   let progressed = true;
   while (progressed) {
@@ -84,6 +89,7 @@ export function checkProgression({ width, height, town, isPassable, toollessKind
     }
     if (progressed) {
       reached = floodFillReachable(width, height, town, (x, y) => isPassable(x, y, unlockedKinds));
+      passes.push(reached);
     }
   }
 
@@ -92,12 +98,13 @@ export function checkProgression({ width, height, town, isPassable, toollessKind
     .map((dungeon) => ({ id: dungeon.id, label: dungeon.label, placed: !!dungeon.pos }));
 
   if (stuck.length === 0) {
-    return { ok: true, stuck: [], reached, frontier: new Set() };
+    return { ok: true, stuck: [], reached, frontier: new Set(), passes };
   }
   return {
     ok: false,
     stuck,
     reached,
     frontier: computeFrontier(width, height, reached, (x, y) => isPassable(x, y, unlockedKinds)),
+    passes,
   };
 }

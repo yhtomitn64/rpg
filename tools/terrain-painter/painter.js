@@ -159,7 +159,13 @@ let toolDungeonMarkers = {}; // toolId -> { screenId, x, y } (wilderness only)
 let placingToolDungeon = null; // toolId currently being placed, or null
 let superBossMarkers = {}; // superBossId -> { screenId, x, y, hasDungeon } (wilderness only)
 let placingSuperBoss = null; // superBossId currently being placed, or null
-let checkOverlay = null; // { toollessReached, tooledReached, frontier: Set<string> } | null (wilderness only)
+// { phase: 'animating', settledFree, settledToolGated: Set<string>, exploring: Set<string> }
+// while the staged multi-wave reveal below is still running, or
+// { phase: 'done', toollessReached, tooledReached, frontier: Set<string> }
+// once every wave has settled and the real verdict is shown - null when
+// nothing's been checked yet (wilderness only).
+let checkOverlay = null;
+let wildernessCheckAnimId = 0; // bumped to invalidate any in-flight reveal animation (stale click, map switch, or edit)
 // { phase: 'animating', revealed: Set<string> } while the reveal animation
 // below is still running, or { phase: 'done', unreached: Set<string> } once
 // it finishes and the real verdict is shown - null when nothing's been
@@ -212,7 +218,7 @@ function undo() {
   } else {
     singleGrid = snapshot.grid;
   }
-  checkOverlay = null; // stale as soon as terrain is restored
+  checkOverlay = null; wildernessCheckAnimId++; // stale as soon as terrain is restored
   return true;
 }
 
@@ -301,7 +307,23 @@ function renderWilderness(ctx) {
     }
   }
 
-  if (checkOverlay) {
+  if (checkOverlay && checkOverlay.phase === 'animating') {
+    // Tool-gated tiles settled by an earlier wave stay yellow while a later
+    // wave is still exploring; the wave currently in flight gets the same
+    // teal "exploring" tint the dungeon-interior check uses. Tiles settled
+    // by the very first (toolless) wave get no tint at all, same as the
+    // final done-state below.
+    for (const key of checkOverlay.settledToolGated) {
+      const [x, y] = key.split(',').map(Number);
+      ctx.fillStyle = 'rgba(224,192,57,0.35)';
+      ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    }
+    for (const key of checkOverlay.exploring) {
+      const [x, y] = key.split(',').map(Number);
+      ctx.fillStyle = 'rgba(46,196,182,0.45)';
+      ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    }
+  } else if (checkOverlay && checkOverlay.phase === 'done') {
     for (let y = 0; y < WORLD_H; y++) {
       for (let x = 0; x < WORLD_W; x++) {
         const key = `${x},${y}`;
@@ -444,7 +466,7 @@ function paintAt(x, y) {
   if (active.isWilderness && active.grid[y][x] === 'townEntrance') return;
   if (active.isWilderness && isSealedWorldEdge(x, y)) return;
   active.grid[y][x] = activeBrush;
-  if (active.isWilderness) checkOverlay = null; // stale as soon as the terrain changes
+  if (active.isWilderness) { checkOverlay = null; wildernessCheckAnimId++; } // stale as soon as the terrain changes
   else { dungeonCheckOverlay = null; dungeonCheckAnimId++; }
 }
 
@@ -840,13 +862,28 @@ function worldKeyFor(marker) {
   return world ? { x: world.wx, y: world.wy } : null;
 }
 
-function checkMap() {
+// The verdict (ok/fail, status text) is decided synchronously below, exactly
+// as before this task's animation was added - only the on-screen reveal is
+// animated, staged wave by wave against `result.passes` (see reachability.js):
+// wave 0 is the toolless flood, each wave after it is the re-flood triggered
+// by a dungeon unlocking. Only each wave's *new* tiles (this pass's reached
+// set minus the previous one's) animate in, in BFS order, at a rate the
+// checkMapSpeed slider controls - same "Set iteration order IS discovery
+// order" trick checkDungeonMap uses. A wave that unlocks nothing new (e.g. the
+// portal/dragon dungeons, which don't gate any terrain) has an empty delta and
+// is skipped instantly, no pause. Once every wave has settled, the overlay
+// swaps to the exact same final toollessReached/tooledReached/frontier tinting
+// this function already produced before animation existed.
+function checkMap(ctx) {
   const status = document.getElementById('checkStatus');
   const town = findTownEntrance();
+  wildernessCheckAnimId++;
+  const myAnimId = wildernessCheckAnimId;
   if (!town) {
     checkOverlay = null;
     status.textContent = 'No townEntrance tile found on the map - cannot check.';
     status.className = 'fail';
+    render(ctx);
     return;
   }
 
@@ -872,7 +909,9 @@ function checkMap() {
     width: WORLD_W, height: WORLD_H, town, isPassable, toollessKinds: TOOLLESS_PASSABLE_KINDS, dungeons,
   });
 
-  checkOverlay = { toollessReached, tooledReached, frontier: result.frontier };
+  const finalOverlay = { phase: 'done', toollessReached, tooledReached, frontier: result.frontier };
+  let finalStatusText;
+  let finalStatusClass;
 
   if (!result.ok) {
     const unplaced = result.stuck.filter((d) => !d.placed);
@@ -884,43 +923,92 @@ function checkMap() {
     if (unreachable.length > 0) {
       parts.push(`the ${unreachable.map((d) => d.label).join(', ')} ${unreachable.length === 1 ? 'is' : 'are'} NOT reachable no matter what order the other tools/dungeons are obtained in`);
     }
-    status.textContent = `❌ ${parts.join('; ')} — magenta tiles on the map mark exactly where the path is blocked.`;
-    status.className = 'fail';
-    return;
-  }
+    finalStatusText = `❌ ${parts.join('; ')} — magenta tiles on the map mark exactly where the path is blocked.`;
+    finalStatusClass = 'fail';
+  } else {
+    // Superboss markers aren't part of the tool-gated progression chain above
+    // (they don't unlock anything further, so there's no "stage order" to
+    // check them against) - each one just needs to be reachable once every
+    // tool is in hand, checked here against tooledReached directly rather
+    // than folded into checkProgression's staged entrances list. Only placed
+    // markers are checked - an unplaced one (screenId still null) has nothing
+    // to verify yet, same as the tool-dungeon "hasn't been placed yet" case
+    // above.
+    const unreachableSuperBosses = [];
+    for (const [superBossId, pos] of Object.entries(superBossMarkers)) {
+      if (!pos.screenId) continue;
+      const world = worldKeyFor(pos);
+      if (!world || !tooledReached.has(`${world.x},${world.y}`)) {
+        unreachableSuperBosses.push(superBossId);
+      }
+    }
 
-  // Superboss markers aren't part of the tool-gated progression chain above
-  // (they don't unlock anything further, so there's no "stage order" to
-  // check them against) - each one just needs to be reachable once every
-  // tool is in hand, checked here against tooledReached directly rather
-  // than folded into checkProgression's staged entrances list. Only placed
-  // markers are checked - an unplaced one (screenId still null) has nothing
-  // to verify yet, same as the tool-dungeon "hasn't been placed yet" case
-  // above.
-  const unreachableSuperBosses = [];
-  for (const [superBossId, pos] of Object.entries(superBossMarkers)) {
-    if (!pos.screenId) continue;
-    const world = worldKeyFor(pos);
-    if (!world || !tooledReached.has(`${world.x},${world.y}`)) {
-      unreachableSuperBosses.push(superBossId);
+    if (unreachableSuperBosses.length > 0) {
+      const verb = unreachableSuperBosses.length === 1 ? 'is' : 'are';
+      finalStatusText = `❌ ${unreachableSuperBosses.join(', ')} ${verb} NOT reachable even with every tool — red tiles on the map mark what's cut off.`;
+      finalStatusClass = 'fail';
+    } else {
+      // What actually matters (Timothy's own bar): can the player navigate,
+      // get the treasure/tools, and reach the dragon - not "is literally
+      // every grass tile in the world reachable." The entrance chain above is
+      // the real check; isolated pockets elsewhere are still visibly tinted
+      // red on the map (nothing hidden) but aren't treated as a failure here
+      // unless something is actually placed there.
+      finalStatusText = '✅ Full progression is soundly gated: axe, pick, canoe (boat), portal and dragon dungeons all become reachable through some valid order of getting tools — and every placed superboss is reachable with every tool.';
+      finalStatusClass = 'ok';
     }
   }
 
-  if (unreachableSuperBosses.length > 0) {
-    const verb = unreachableSuperBosses.length === 1 ? 'is' : 'are';
-    status.textContent = `❌ ${unreachableSuperBosses.join(', ')} ${verb} NOT reachable even with every tool — red tiles on the map mark what's cut off.`;
-    status.className = 'fail';
-    return;
+  status.textContent = '🔎 Checking…';
+  status.className = '';
+
+  const speedSlider = document.getElementById('checkMapSpeed');
+  const settledFree = new Set(); // wave 0 (toolless) tiles - no tint, freely reachable
+  const settledToolGated = new Set(); // later-wave tiles - yellow tint, tool-gated
+  const exploring = new Set(); // the wave currently animating in
+  let waveIndex = 0;
+  let order = [];
+  let cursor = 0;
+
+  function startWave() {
+    if (myAnimId !== wildernessCheckAnimId) return; // superseded by a later check, an edit, or a marker move
+    if (waveIndex >= result.passes.length) {
+      checkOverlay = finalOverlay;
+      status.textContent = finalStatusText;
+      status.className = finalStatusClass;
+      render(ctx);
+      return;
+    }
+    const previouslyReached = waveIndex === 0 ? new Set() : result.passes[waveIndex - 1];
+    order = [...result.passes[waveIndex]].filter((key) => !previouslyReached.has(key));
+    cursor = 0;
+    exploring.clear();
+    if (order.length === 0) {
+      waveIndex++;
+      startWave();
+      return;
+    }
+    requestAnimationFrame(step);
   }
 
-  // What actually matters (Timothy's own bar): can the player navigate,
-  // get the treasure/tools, and reach the dragon - not "is literally every
-  // grass tile in the world reachable." The entrance chain above is the
-  // real check; isolated pockets elsewhere are still visibly tinted red on
-  // the map (nothing hidden) but aren't treated as a failure here unless
-  // something is actually placed there.
-  status.textContent = '✅ Full progression is soundly gated: axe, pick, canoe (boat), portal and dragon dungeons all become reachable through some valid order of getting tools — and every placed superboss is reachable with every tool.';
-  status.className = 'ok';
+  function step() {
+    if (myAnimId !== wildernessCheckAnimId) return;
+    const tilesPerFrame = Math.max(1, Number(speedSlider.value) || 1);
+    const end = Math.min(order.length, cursor + tilesPerFrame);
+    for (; cursor < end; cursor++) exploring.add(order[cursor]);
+    checkOverlay = { phase: 'animating', settledFree, settledToolGated, exploring };
+    render(ctx);
+    if (cursor < order.length) {
+      requestAnimationFrame(step);
+      return;
+    }
+    const target = waveIndex === 0 ? settledFree : settledToolGated;
+    for (const key of order) target.add(key);
+    waveIndex++;
+    setTimeout(startWave, 400);
+  }
+
+  startWave();
 }
 
 // Dungeon-interior maps have no tool-gating at all (unlike the wilderness),
@@ -1389,8 +1477,7 @@ async function init() {
   });
 
   document.getElementById('checkMapBtn').addEventListener('click', () => {
-    checkMap();
-    render(ctx);
+    checkMap(ctx);
   });
 
   document.getElementById('checkDungeonMapBtn').addEventListener('click', () => {
@@ -1451,7 +1538,7 @@ async function init() {
       if (local) {
         dungeonMarker = local;
         updateDungeonReadout();
-        checkOverlay = null; // stale as soon as the marker moves
+        checkOverlay = null; wildernessCheckAnimId++; // stale as soon as the marker moves
         saveAutosave();
         markDirty();
       }
@@ -1467,7 +1554,7 @@ async function init() {
       if (local) {
         toolDungeonMarkers[placingToolDungeon] = local;
         updateToolDungeonReadout();
-        checkOverlay = null; // stale as soon as a marker moves
+        checkOverlay = null; wildernessCheckAnimId++; // stale as soon as a marker moves
         saveAutosave();
         markDirty();
       }
@@ -1483,7 +1570,7 @@ async function init() {
       if (local) {
         superBossMarkers[placingSuperBoss] = { ...local, hasDungeon: superBossHasDungeonCheckbox.checked };
         updateSuperBossReadout();
-        checkOverlay = null; // stale as soon as a marker moves
+        checkOverlay = null; wildernessCheckAnimId++; // stale as soon as a marker moves
         saveAutosave();
         markDirty();
       }
@@ -1654,9 +1741,20 @@ async function init() {
         superBossesMod.SUPER_BOSSES[hookUpSuperBossId].dungeonMapId = currentMapKey;
         superBossesMod.SUPER_BOSSES[hookUpSuperBossId].hasDungeon = true;
       }
+      // The file now exists on disk and the server has registered it for
+      // /api/patch-single-map this session (see handleCreateDungeon) - so
+      // every save after this first one should go through the normal
+      // "Save to Server" button instead of re-running this whole create-
+      // dungeon flow (re-prompting for guardianMonsterId and rewriting the
+      // whole file every time, raised 2026-09-13). Same visibility toggle
+      // switchMap runs on mode-switch, just applied immediately instead of
+      // waiting for the author to leave and come back to this map.
+      def.isNewDungeon = false;
+      newDungeonOnlyEls.forEach((el) => { el.style.display = 'none'; });
+      updateExportBtnLabel();
       saveNewDungeonStatus.textContent = hookUpSuperBossId
-        ? `Saved js/maps/superBosses/${currentMapKey}.js, registered it in js/main.js, and hooked it up to ${hookUpSuperBossId} in js/data/superBosses.js.`
-        : `Saved js/maps/superBosses/${currentMapKey}.js and registered it in js/main.js.`;
+        ? `Saved js/maps/superBosses/${currentMapKey}.js, registered it in js/main.js, and hooked it up to ${hookUpSuperBossId} in js/data/superBosses.js. Further saves will use "Save to Server" above.`
+        : `Saved js/maps/superBosses/${currentMapKey}.js and registered it in js/main.js. Further saves will use "Save to Server" above.`;
       clearDirty();
     } catch (err) {
       saveNewDungeonStatus.textContent = `Failed: ${err.message}`;

@@ -98,33 +98,24 @@ of the three-session balance queue above — separate initiative):**
     eventually unlocks through *some* order, not a fixed
     axe→pick→canoe→portal→dragon sequence. See CHANGELOG.md's 0.35.3
     entry.
-  - **New: wilderness "Check Map"'s own animated reveal, raised
-    2026-09-13.** The dungeon-interior Check Map (below) got an animated
-    BFS-layer reveal + speed slider this session, but the wilderness
-    check didn't — the order-independent rewrite just above turned it
-    into a fixed-point loop (a full re-flood per unlock pass), and
-    animating that coherently means deciding how to show N successive
-    floods against a growing passable set, a design question, not just a
-    rendering one the single-flood dungeon check was. Scoped out
-    deliberately, not forgotten — see CHANGELOG.md's 0.35.3 "Not yet
-    built" note and the terrain-painter handoff doc for the reasoning.
-  - **New: "Save New Dungeon to Server" re-prompts every single save,
-    raised 2026-09-13 (found during this session, not yet raised to
-    Timothy).** Every click of that button (`painter.js`'s
-    `saveNewDungeonBtn` handler) runs a native `prompt()` for
-    `guardianMonsterId` and rebuilds the whole file from scratch via
-    `/api/create-dungeon`, even on the Nth save of a dungeon that already
-    has a file and is already registered in `main.js` (the handler does
-    skip re-registering `main.js` itself via `alreadyRegisteredByUs`, but
-    nothing skips the prompt or the full-file rewrite). Mildly annoying
-    when iterating on a new dungeon's terrain after its first save — you
-    have to retype/reconfirm the same monster id every time just to
-    persist a tile tweak. This session's new `/api/patch-single-map`
-    endpoint (also 0.35.3, see CHANGELOG.md) already does the lightweight
-    "just patch LEGEND/ROWS" thing for every *existing* single map — a
-    natural fix here is routing a dungeon's 2nd-and-later saves through
-    that same endpoint instead of re-running the whole create-dungeon
-    flow, once the file already exists.
+  - ~~Wilderness "Check Map"'s own animated reveal~~ — **shipped
+    2026-09-13 (0.35.4)**: `checkProgression()`
+    (`tools/terrain-painter/reachability.js`) now also returns `passes`
+    (the `reached` set after each flood, in order), and `checkMap()`
+    (`tools/terrain-painter/painter.js`) replays them wave by wave — each
+    wave's new tiles reveal in BFS order with the same teal "exploring"
+    tint the dungeon check uses, settling into their real tint before the
+    next wave starts. A new `checkMapSpeed` slider controls the pace. See
+    CHANGELOG.md's 0.35.4 entry.
+  - ~~"Save New Dungeon to Server" re-prompts every single save~~ —
+    **shipped 2026-09-13 (0.35.4)**: `handleCreateDungeon`
+    (`tools/terrain-painter/server.js`) now registers the new file in
+    `SINGLE_MAP_FILES` immediately, and `saveNewDungeonBtn`'s success
+    handler (`tools/terrain-painter/painter.js`) flips `isNewDungeon` to
+    `false` and switches the UI to the normal "Save to Server" button —
+    so only the first save prompts for `guardianMonsterId`; every save
+    after that patches LEGEND/ROWS via `/api/patch-single-map` like any
+    other existing single map. See CHANGELOG.md's 0.35.4 entry.
   - Non-store zone-1 loot (unique finds outside the shop) — open.
 - **Painter tool: paint monster placement** (big idea, not designed) — per-tile/region monster tables as paintable layers.
 - **Roaming visible enemies + dragon difficulty scaling** (big, needs design pass) — visible overworld entities, cross-screen movement, opt-in power-scaling dragon mode (standard dragon fight stays fixed). Possible dependency on a scrolling/camera rendering rewrite (also raised independently for mobile-responsive viewport).

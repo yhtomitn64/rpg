@@ -275,6 +275,14 @@ async function handleCreateDungeon(req, res) {
   await mkdir(dirPath, { recursive: true });
   const fileContent = `${legendRowsText}\n\nexport const ${mapId}Map = {\n  id: '${mapId}',\n  legend: LEGEND,\n  rows: ROWS,\n  startPosition: { x: ${startX}, y: ${startY} },\n  encounterChance: 0,\n  cacheChance: 0,\n  monsterTable: [],\n  guardianMonsterId: '${guardianMonsterId}',\n};\n`;
   await writeFile(filePath, fileContent);
+  // Registers the file for /api/patch-single-map right away, so a dungeon's
+  // 2nd-and-later saves this same server session can go through the
+  // lightweight LEGEND/ROWS patch instead of re-running this whole
+  // create-dungeon flow (raised 2026-09-13 - re-saving used to re-prompt for
+  // guardianMonsterId and rewrite the whole file every single click). Only
+  // takes effect for the rest of this process's lifetime - a restart still
+  // rebuilds SINGLE_MAP_FILES from SUPER_BOSSES alone, same as before.
+  SINGLE_MAP_FILES[mapId] = filePath;
 
   if (!alreadyRegisteredByUs) {
     // Insert the import right before `const MAPS = {`, and the registry
