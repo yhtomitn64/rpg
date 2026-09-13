@@ -76,6 +76,11 @@ test('every SUPER_BOSSES entry has the required shape', () => {
     } else {
       assert.equal(entry.dungeonMapId, null, `${id} has hasDungeon: false but a non-null dungeonMapId`);
     }
+    if ('debutNgPlusCycle' in entry) {
+      assert.equal(typeof entry.debutNgPlusCycle, 'number', `${id}'s debutNgPlusCycle must be a number if present`);
+      assert.ok(entry.debutNgPlusCycle >= 0, `${id}'s debutNgPlusCycle must be non-negative`);
+      assert.ok(Number.isInteger(entry.debutNgPlusCycle), `${id}'s debutNgPlusCycle must be an integer`);
+    }
   }
 });
 

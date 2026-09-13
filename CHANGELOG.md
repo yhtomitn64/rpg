@@ -24,6 +24,16 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+### Added
+- **`js/systems/superBossGates.js` gates superboss encounters on NG+ cycle progress.**
+  Exports `isSuperBossDebuted(entry, ngPlusCycle)` (pure predicate: returns true iff the
+  entry has no `debutNgPlusCycle` field or the player has reached/exceeded that cycle) and
+  `getSuperBossNotYetMessage()` (the message shown when a superboss is locked). Mirrors the
+  shape of `js/systems/toolGates.js`'s `hasRequiredTool`/`getLockedGateMessage` seam,
+  providing the decision logic that Task 5's wiring to `main.js` will call into. All entries
+  without a `debutNgPlusCycle` field default to being immediately available (cycle >= 0),
+  e.g. `superBossOne` does not have the field and debuts at cycle 0.
+
 ## [0.34.7] - 2026-09-13
 
 ### Added
