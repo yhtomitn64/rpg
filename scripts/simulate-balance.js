@@ -75,8 +75,18 @@ import { getNgPlusCombatOverrides } from '../js/systems/ngPlus.js';
 // a future report run could compare two rates side by side in one process.
 const PARRY_LAND_RATE_DEFAULT = 0.3;
 
+// Higher than PARRY_LAND_RATE_DEFAULT: a telegraphed special attack gets its
+// own distinct flavor line/icon (2026-09-05 spec) specifically so a real
+// player can react to it, unlike a routine hit. Modeling both at the same
+// flat rate made every superboss look far harder in this file than in real
+// play - confirmed 2026-09-13 by disabling superBossOne's specials outright,
+// which raised its NG+1 win rate from 40% to 87% with nothing else changed.
+// 0.55 is a starting hypothesis, not a measured number - override via
+// --special-parry-rate to explore other assumptions, same as --parry-rate.
+const SPECIAL_PARRY_LAND_RATE_DEFAULT = 0.55;
+
 function parseArgs(argv) {
-  const opts = { trials: 2000, parryRate: PARRY_LAND_RATE_DEFAULT, overrides: {} };
+  const opts = { trials: 2000, parryRate: PARRY_LAND_RATE_DEFAULT, specialParryRate: SPECIAL_PARRY_LAND_RATE_DEFAULT, overrides: {} };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--trials') {
       opts.trials = Number(argv[++i]);
@@ -84,6 +94,11 @@ function parseArgs(argv) {
       opts.parryRate = Number(argv[++i]);
       if (!Number.isFinite(opts.parryRate)) {
         throw new Error(`--parry-rate expects a number, got ${JSON.stringify(argv[i])}`);
+      }
+    } else if (argv[i] === '--special-parry-rate') {
+      opts.specialParryRate = Number(argv[++i]);
+      if (!Number.isFinite(opts.specialParryRate)) {
+        throw new Error(`--special-parry-rate expects a number, got ${JSON.stringify(argv[i])}`);
       }
     } else if (argv[i] === '--set') {
       const [path, rawValue] = argv[++i].split('=');
@@ -399,7 +414,7 @@ function applyOnHitEffects(build, player, target, damage, damageMultiplier = 1) 
   }
 }
 
-function simulateBattle(build, monsterStats, parryLandRate = PARRY_LAND_RATE_DEFAULT) {
+function simulateBattle(build, monsterStats, parryLandRate = PARRY_LAND_RATE_DEFAULT, specialParryLandRate = SPECIAL_PARRY_LAND_RATE_DEFAULT) {
   const player = {
     hp: build.maxHp, maxHp: build.maxHp,
     attack: build.attack, defense: build.defense, speed: build.speed,
@@ -465,8 +480,9 @@ function simulateBattle(build, monsterStats, parryLandRate = PARRY_LAND_RATE_DEF
       // Rolled once per resolved monster turn - see this function's own
       // header comment for why there's no separate windup-start roll here.
       const special = rollSpecialAttack(monster.specialAttacks);
+      const effectiveParryRate = special ? specialParryLandRate : parryLandRate;
       let result;
-      if (parryCooldownMs <= 0 && Math.random() < parryLandRate) {
+      if (parryCooldownMs <= 0 && Math.random() < effectiveParryRate) {
         parryCooldownMs = PARRY_COOLDOWN_MS;
         const { damage } = rollIncomingDamage(monster, player, Math.random);
         result = resolveParrySuccess(monster, damage);
@@ -574,7 +590,7 @@ function simulateBattle(build, monsterStats, parryLandRate = PARRY_LAND_RATE_DEF
   return { outcome: 'stalemate', hpLeft: player.hp / player.maxHp, potionsUsed, ticks: MAX_TICKS, specialAttacksLanded, specialAttacksParried };
 }
 
-function runMatchup(build, monsterStats, trials, parryLandRate) {
+function runMatchup(build, monsterStats, trials, parryLandRate, specialParryLandRate) {
   let wins = 0;
   let stalemates = 0;
   let hpLeftOnWin = 0;
@@ -583,7 +599,7 @@ function runMatchup(build, monsterStats, trials, parryLandRate) {
   let specialAttacksParried = 0;
 
   for (let i = 0; i < trials; i++) {
-    const result = simulateBattle(build, monsterStats, parryLandRate);
+    const result = simulateBattle(build, monsterStats, parryLandRate, specialParryLandRate);
     if (result.outcome === 'won') {
       wins++;
       hpLeftOnWin += result.hpLeft;
@@ -615,7 +631,7 @@ function pct(value) {
 }
 
 function main() {
-  const { trials, overrides, parryRate } = parseArgs(process.argv.slice(2));
+  const { trials, overrides, parryRate, specialParryRate } = parseArgs(process.argv.slice(2));
 
   const monsters = {};
   for (const id of MATCHUPS) {
@@ -684,7 +700,7 @@ function main() {
   console.log('-'.repeat(88));
   for (const build of BUILDS) {
     for (const id of [...MATCHUPS, ...SUPER_BOSS_MATCHUP_IDS, ...BOSS_TIER_MATCHUP_IDS, ...NG_PLUS_MATCHUP_IDS, ...SUPER_BOSS_NG_PLUS_MATCHUP_IDS]) {
-      const r = runMatchup(build, monsters[id], trials, parryRate);
+      const r = runMatchup(build, monsters[id], trials, parryRate, specialParryRate);
       const stalemateNote = r.stalemateRate > 0 ? `  (stalemate ${pct(r.stalemateRate)})` : '';
       const specialNote = (r.specialAttacksLanded + r.specialAttacksParried) > 0
         ? `  (special landed ${r.specialAttacksLanded}, parried ${r.specialAttacksParried})`

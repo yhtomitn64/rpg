@@ -25,6 +25,17 @@ public API, no formal release process — commits land straight on
 ## [Unreleased]
 
 ### Fixed
+- **`scripts/simulate-balance.js` now models telegraphed special attacks with a
+  separate, higher parry rate.** Superboss special attacks (slow/cooldownOverload)
+  are telegraphed with a distinct flavor line/icon so a real player can react to
+  them, unlike routine hits. The simulator was rolling the exact same `parryLandRate`
+  (default 0.3) for both, making every superboss look far harder in this file than
+  in real play. Testing confirmed the effect size: disabling superBossOne's specials
+  outright raised its NG+1 win rate from 40% to 87% with nothing else changed. Now
+  `simulateBattle()` accepts a 4th parameter `specialParryLandRate` (default 0.55) and
+  uses it when the rolled attack is a special. The CLI accepts `--special-parry-rate`
+  to override the default, same as `--parry-rate`. Motivation: see "Problem" section
+  of `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`.
 - **`scripts/simulate-balance.js`'s `maxedUpgrades()` function now uses the
   real per-cycle upgrade cap instead of a flat `MAX_UPGRADE_LEVEL`.** The
   function previously applied upgrade level 3 to every item slot regardless
