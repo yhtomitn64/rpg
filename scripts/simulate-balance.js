@@ -86,7 +86,7 @@ const PARRY_LAND_RATE_DEFAULT = 0.3;
 const SPECIAL_PARRY_LAND_RATE_DEFAULT = 0.55;
 
 function parseArgs(argv) {
-  const opts = { trials: 2000, parryRate: PARRY_LAND_RATE_DEFAULT, specialParryRate: SPECIAL_PARRY_LAND_RATE_DEFAULT, overrides: {} };
+  const opts = { trials: 2000, parryRate: PARRY_LAND_RATE_DEFAULT, specialParryRate: SPECIAL_PARRY_LAND_RATE_DEFAULT, cycleSweepBossId: null, overrides: {} };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--trials') {
       opts.trials = Number(argv[++i]);
@@ -116,6 +116,8 @@ function parseArgs(argv) {
       }
       const monsterId = raw.slice(0, eqIndex);
       (opts.overrides[monsterId] ||= {}).specialAttacks = JSON.parse(raw.slice(eqIndex + 1));
+    } else if (argv[i] === '--cycle-sweep') {
+      opts.cycleSweepBossId = argv[++i];
     }
   }
   return opts;
@@ -624,6 +626,55 @@ function runMatchup(build, monsterStats, trials, parryLandRate, specialParryLand
   };
 }
 
+// For a given superboss id, builds a small level/upgrade-level matrix per
+// NG+ cycle from 0 to 4: "cycle-start gear" (full iron/Superior-tier shop
+// gear, upgrade level 0, a level a few above the previous cycle's expected
+// finish) through "cycle-ceiling gear" (Mythic everywhere, upgraded to
+// getMaxUpgradeLevel(cycle)). First-pass level numbers below extrapolate
+// from Timothy's own save (entered NG+2 at level 17, beat superBossOne's
+// NG+2 fight comfortably at level 19-20) - refine once more real telemetry
+// exists for the new bosses this tool is meant to validate.
+const CYCLE_SWEEP_LEVELS = { start: [8, 12, 15, 17, 19], ceiling: [10, 15, 18, 20, 22] };
+
+function runCycleSweep(bossId, trials, parryRate, specialParryRate) {
+  const baseMonster = MONSTERS[bossId];
+  if (!baseMonster) throw new Error(`--cycle-sweep: unknown monster id '${bossId}'`);
+
+  const equipment = {
+    weapon: 'ironSword', head: 'ironHelm', body: 'ironArmor', legs: 'ironGreaves',
+    accessory: 'powerRing', ring1: 'emberRing', ring2: 'windfuryRing',
+  };
+
+  console.log(`\n=== Cycle sweep: ${baseMonster.name} ===`);
+  for (let cycle = 0; cycle <= 4; cycle++) {
+    const monsterStats = { ...baseMonster, ...getNgPlusCombatOverrides(baseMonster, cycle) };
+    console.log(`\n-- NG+${cycle} (hp ${monsterStats.hp}, atk ${monsterStats.attack}, def ${monsterStats.defense}) --`);
+
+    const startBuild = makeBuild({
+      name: `cycle-start (L${CYCLE_SWEEP_LEVELS.start[cycle]})`,
+      level: CYCLE_SWEEP_LEVELS.start[cycle],
+      equipment: { weapon: 'ironSword', head: 'ironHelm', body: 'ironArmor', legs: 'ironGreaves', accessory: 'powerRing' },
+      equipmentTiers: { weapon: 'superior', head: 'superior', body: 'superior', legs: 'superior', accessory: 'superior' },
+      upgrades: {},
+      potions: 6,
+    });
+    const ceilingTiers = { weapon: 'mythic', head: 'mythic', body: 'mythic', legs: 'mythic', accessory: 'mythic', ring1: 'mythic', ring2: 'mythic' };
+    const ceilingBuild = makeBuild({
+      name: `cycle-ceiling (L${CYCLE_SWEEP_LEVELS.ceiling[cycle]})`,
+      level: CYCLE_SWEEP_LEVELS.ceiling[cycle],
+      equipment,
+      equipmentTiers: ceilingTiers,
+      upgrades: maxedUpgrades(equipment, ceilingTiers, cycle),
+      potions: 6,
+    });
+
+    for (const build of [startBuild, ceilingBuild]) {
+      const r = runMatchup(build, monsterStats, trials, parryRate, specialParryRate);
+      console.log(`  ${build.name.padEnd(28)} win ${(r.winRate * 100).toFixed(0)}%  hp-left ${(r.avgHpLeftOnWin * 100).toFixed(0)}%  potions ${r.avgPotions.toFixed(1)}`);
+    }
+  }
+}
+
 // --- Report ------------------------------------------------------------
 
 function pct(value) {
@@ -631,7 +682,12 @@ function pct(value) {
 }
 
 function main() {
-  const { trials, overrides, parryRate, specialParryRate } = parseArgs(process.argv.slice(2));
+  const { trials, overrides, parryRate, specialParryRate, cycleSweepBossId } = parseArgs(process.argv.slice(2));
+
+  if (cycleSweepBossId) {
+    runCycleSweep(cycleSweepBossId, trials, parryRate, specialParryRate);
+    return;
+  }
 
   const monsters = {};
   for (const id of MATCHUPS) {

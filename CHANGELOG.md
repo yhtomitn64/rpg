@@ -24,6 +24,21 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+### Added
+- **`scripts/simulate-balance.js` gains a `--cycle-sweep <bossId>` mode.**
+  Instead of the fixed level-12 "maxed" build the existing report used,
+  this runs a small level/gear matrix - "cycle-start" (full iron/Superior
+  shop gear, upgrade level 0, a level a few above the previous cycle's
+  expected finish) through "cycle-ceiling" (Mythic everywhere, upgraded
+  to that cycle's real `getMaxUpgradeLevel(cycle)`) - against a given
+  superboss at each NG+ cycle from 0 to 4. This is the tool the rest of
+  `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`'s
+  plan will use to validate the four new superbosses' stats before they
+  ship, rather than eyeballing a single build/cycle combination. Adds a
+  new `runCycleSweep()` function and a `cycleSweepBossId` option to
+  `parseArgs()`; `main()` dispatches to it and returns early when the
+  flag is present, skipping the full multi-monster report.
+
 ### Fixed
 - **`scripts/simulate-balance.js` now models telegraphed special attacks with a
   separate, higher parry rate.** Superboss special attacks (slow/cooldownOverload)
