@@ -24,6 +24,8 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.34.7] - 2026-09-13
+
 ### Added
 - **`scripts/simulate-balance.js` gains a `--cycle-sweep <bossId>` mode.**
   Instead of the fixed level-12 "maxed" build the existing report used,

@@ -5,6 +5,17 @@
 // or care about while playing. Keep it in sync manually: add a new entry
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
+  // Internal-only, same reason 0.34.1-0.34.4 got entries (see this file's
+  // header + those entries' own comments): a dev-only balance-tuning tool
+  // (scripts/simulate-balance.js, not shipped in the game itself) got two
+  // bugfixes and a new CLI mode, with no player-visible change.
+  {
+    version: '0.34.7',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some internal balance-tuning tooling updates - nothing to notice in-game.",
+    ],
+  },
   {
     version: '0.34.6',
     date: '2026-09-13',
