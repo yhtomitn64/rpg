@@ -5,6 +5,13 @@
 // or care about while playing. Keep it in sync manually: add a new entry
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
+  {
+    version: '0.35.0',
+    date: '2026-09-13',
+    highlights: [
+      "New: four brand-new superbosses now await in New Game+ - one more debuts each time you complete another cycle (through your fourth), so pushing deeper into New Game+ keeps turning up a fresh, brutal fight with a guaranteed rare drop for whoever can take it down.",
+    ],
+  },
   // Internal-only, same reason 0.34.1-0.34.4 got entries (see this file's
   // header + those entries' own comments): superboss encounters now have the
   // plumbing to be locked behind an NG+ cycle threshold (isSuperBossDebuted in
