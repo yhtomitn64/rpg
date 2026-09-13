@@ -24,6 +24,8 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.34.8] - 2026-09-13
+
 ### Added
 - **`js/systems/superBossGates.js` gates superboss encounters on NG+ cycle progress.**
   Exports `isSuperBossDebuted(entry, ngPlusCycle)` (pure predicate: returns true iff the

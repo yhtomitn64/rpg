@@ -6,6 +6,20 @@
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
   // Internal-only, same reason 0.34.1-0.34.4 got entries (see this file's
+  // header + those entries' own comments): superboss encounters now have the
+  // plumbing to be locked behind an NG+ cycle threshold (isSuperBossDebuted in
+  // js/systems/superBossGates.js, wired into main.js's tile-action handlers),
+  // but no superboss actually sets a debutNgPlusCycle yet - existing
+  // superBossOne debuts at cycle 0 same as always, so nothing changes for a
+  // player until Phase 2 gives the new bosses a real gated value.
+  {
+    version: '0.34.8',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some internal groundwork for a future superboss feature - nothing to notice in-game yet.",
+    ],
+  },
+  // Internal-only, same reason 0.34.1-0.34.4 got entries (see this file's
   // header + those entries' own comments): a dev-only balance-tuning tool
   // (scripts/simulate-balance.js, not shipped in the game itself) got two
   // bugfixes and a new CLI mode, with no player-visible change.
