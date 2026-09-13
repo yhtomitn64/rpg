@@ -496,7 +496,7 @@ function handleCloudSaveImport(data) {
       return { imported: true, mode: 'overwrite', name: existing.name };
     }
   }
-  const defaultName = `Imported ${data?.player?.emoji || ''} Lv${data?.player?.level ?? '?'}`.trim();
+  const defaultName = `Imported ${data?.player?.emoji || ''}`.trim();
   const name = window.prompt('Name this imported character:', defaultName);
   if (name === null) return { imported: false };
   const finalName = name.trim() || defaultName;

@@ -24,6 +24,28 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.34.6] - 2026-09-13
+
+### Fixed
+- **An imported save's default character name no longer bakes in a level
+  that immediately goes stale.** `js/main.js`'s `handleCloudSaveImport`
+  built the default name shown in the `window.prompt` as `Imported
+  ${emoji} Lv${level}`, and that string becomes the permanent
+  `slot.name` in the save-slot registry (`js/systems/saveSlots.js`'s
+  `importSlot`) whenever a player accepts the default as-is.
+  `saveSlots.js`'s `touchSlot`, called on every subsequent save, updates
+  `entry.level` (and `entry.ngPlusCycle`) but never touches `entry.name`
+  - so the live level shown on the Character Select screen's `Level
+  ${slot.level}` meta line (`js/screens/startScreen.js`'s
+  `renderSlotRow`) kept advancing while the level baked into the name
+  above it froze at import time. Reported with a screenshot showing a
+  character named "Imported (emoji) Lv12" with "Level 19" directly beneath it
+  - 7 level-ups after import, never reflected in the name. Fix: drop the
+  level from the default name entirely (`Imported ${emoji}`), since it's
+  redundant with the live meta line right below and this way it can
+  never go stale. A custom name typed at the prompt is unaffected either
+  way.
+
 ## [0.34.5] - 2026-09-12
 
 ### Fixed

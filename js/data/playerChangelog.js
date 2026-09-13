@@ -6,6 +6,13 @@
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
   {
+    version: '0.34.6',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: an imported character's name no longer shows a level that stops updating - the name won't get stuck on the level you imported at anymore (your current level still shows right below it, as always).",
+    ],
+  },
+  {
     version: '0.34.5',
     date: '2026-09-12',
     highlights: [
