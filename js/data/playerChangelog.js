@@ -5,6 +5,12 @@
 // or care about while playing. Keep it in sync manually: add a new entry
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
+  // Written ahead of world placement: as of this commit the four bosses below
+  // are registered in js/data/superBosses.js with screenId/x/y still null (see
+  // CHANGELOG.md's 0.35.0 entry) - placing them in the world is Timothy's own
+  // next step before this branch reaches main. This entry describes the
+  // finished feature and is only accurate once that placement lands; don't let
+  // it ship to players (main / the live footer) ahead of that.
   {
     version: '0.35.0',
     date: '2026-09-13',
