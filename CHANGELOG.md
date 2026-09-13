@@ -25,6 +25,11 @@ public API, no formal release process — commits land straight on
 ## [Unreleased]
 
 ### Added
+- **Four new superboss monster entries added (`superBossTwo` through `superBossFive`).**
+  Each debuts at its own NG+ cycle (cycles 1–4 respectively) and guarantees a unique `apex`-tier item drop.
+  Base stats are first-pass, deliberately tuned to be shorter fights with harder-hitting attacks than
+  `superBossOne`'s own cycle-scaled equivalents. Validate and retune with `scripts/simulate-balance.js --cycle-sweep`
+  before final placement.
 - **`guardiansLastStand` unique item added to the superboss loot pool.**
   A new guaranteed drop for the cycle-4 superboss (superBossFive), combining `thornsPercent` (30) and `debuffDurationPercent` (25) — both existing stat fields already wired through equipment bonuses. Includes a placeholder name to be renamed before final release.
 

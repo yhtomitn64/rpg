@@ -304,4 +304,83 @@ export const MONSTERS = {
     ],
     attackStyle: 'melee',
   },
+  // Debuts at NG+1 (see SUPER_BOSSES.superBossTwo's debutNgPlusCycle).
+  // FIRST-PASS STATS, not final - validate/retune with:
+  //   node scripts/simulate-balance.js --cycle-sweep superBossTwo
+  // before Timothy places this for real. Base numbers below produce, once
+  // getNgPlusCombatOverrides scales them at NG+1 (hp x2, atk/def x1.25):
+  // effective hp 2200 / atk 75 / def 26 - meaningfully less HP and more
+  // attack than superBossOne's own NG+1-scaled 6000/69/30, per this pass's
+  // "shorter, harder-hitting" design goal.
+  superBossTwo: {
+    id: 'superBossTwo', name: 'Super Boss Two [PLACEHOLDER NAME]', emoji: '👹',
+    hp: 1100, attack: 60, defense: 21, speed: 14,
+    xp: 650, goldRange: [180, 260],
+    dropTable: [{ itemId: 'parryMasterRing', chance: 1, tier: 'apex' }],
+    isSuperBoss: true,
+    forceFullBattle: true,
+    specialAttacks: [
+      { type: 'stun', chancePerTurn: 0.25, durationMs: 1200 },
+      { type: 'slow', chancePerTurn: 0.25, slowPercent: 25, durationMs: 4000 },
+      { type: 'cooldownOverload', chancePerTurn: 0.2, gcdMs: 6000 },
+    ],
+    attackStyle: 'melee',
+  },
+  // Debuts at NG+2. FIRST-PASS STATS - validate with
+  //   node scripts/simulate-balance.js --cycle-sweep superBossThree
+  // Base numbers produce, at NG+2 (hp x4, atk/def x1.5625): effective hp
+  // 3200 / atk 109 / def 30 - vs. superBossOne's own NG+2-scaled
+  // 12000/86/38 (the exact fight Timothy beat at 100% HP doing "like 2
+  // damage") - deliberately far less HP, more attack.
+  superBossThree: {
+    id: 'superBossThree', name: 'Super Boss Three [PLACEHOLDER NAME]', emoji: '🧟',
+    hp: 800, attack: 70, defense: 19, speed: 15,
+    xp: 850, goldRange: [220, 320],
+    dropTable: [{ itemId: 'unshakenCharm', chance: 1, tier: 'apex' }],
+    isSuperBoss: true,
+    forceFullBattle: true,
+    specialAttacks: [
+      { type: 'stun', chancePerTurn: 0.3, durationMs: 1300 },
+      { type: 'slow', chancePerTurn: 0.25, slowPercent: 30, durationMs: 4000 },
+      { type: 'cooldownOverload', chancePerTurn: 0.2, gcdMs: 6500 },
+    ],
+    attackStyle: 'ranged', projectileEmoji: '🦴',
+  },
+  // Debuts at NG+3. FIRST-PASS STATS - validate with
+  //   node scripts/simulate-balance.js --cycle-sweep superBossFour
+  // Base numbers produce, at NG+3 (hp x8, atk/def x1.953125): effective hp
+  // 4504 / atk 150 / def 33.
+  superBossFour: {
+    id: 'superBossFour', name: 'Super Boss Four [PLACEHOLDER NAME]', emoji: '👺',
+    hp: 563, attack: 77, defense: 17, speed: 15,
+    xp: 1100, goldRange: [280, 400],
+    dropTable: [{ itemId: 'stormringOfHaste', chance: 1, tier: 'apex' }],
+    isSuperBoss: true,
+    forceFullBattle: true,
+    specialAttacks: [
+      { type: 'stun', chancePerTurn: 0.3, durationMs: 1400 },
+      { type: 'slow', chancePerTurn: 0.3, slowPercent: 30, durationMs: 4500 },
+      { type: 'cooldownOverload', chancePerTurn: 0.25, gcdMs: 6500 },
+    ],
+    attackStyle: 'melee',
+  },
+  // Debuts at NG+4, the hardest of this pass's four. FIRST-PASS STATS -
+  // validate with
+  //   node scripts/simulate-balance.js --cycle-sweep superBossFive
+  // Base numbers produce, at NG+4 (hp x16, atk/def x2.44140625): effective
+  // hp 6496 / atk 200 / def 39.
+  superBossFive: {
+    id: 'superBossFive', name: 'Super Boss Five [PLACEHOLDER NAME]', emoji: '🐲',
+    hp: 406, attack: 82, defense: 16, speed: 16,
+    xp: 1400, goldRange: [350, 500],
+    dropTable: [{ itemId: 'guardiansLastStand', chance: 1, tier: 'apex' }],
+    isSuperBoss: true,
+    forceFullBattle: true,
+    specialAttacks: [
+      { type: 'stun', chancePerTurn: 0.3, durationMs: 1500 },
+      { type: 'slow', chancePerTurn: 0.3, slowPercent: 35, durationMs: 5000 },
+      { type: 'cooldownOverload', chancePerTurn: 0.25, gcdMs: 7000 },
+    ],
+    attackStyle: 'ranged', projectileEmoji: '❄️',
+  },
 };
