@@ -24,6 +24,20 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+### Fixed
+- **`scripts/simulate-balance.js`'s `maxedUpgrades()` function now uses the
+  real per-cycle upgrade cap instead of a flat `MAX_UPGRADE_LEVEL`.** The
+  function previously applied upgrade level 3 to every item slot regardless
+  of which NG+ cycle the test build claimed to represent, silently under-
+  gearing the two "maxed Mythic L12 (NG+2, ...)" builds that are meant to
+  test a player at the actual NG+2 gear ceiling. Now `maxedUpgrades()` takes
+  an optional `cycle` parameter (defaulting to 0 for backward compatibility)
+  and calls `getMaxUpgradeLevel(cycle)` to get the correct ceiling - NG+2
+  builds now show upgrade level 7 on every slot instead of 3, correctly
+  exposing the real NG+2 difficulty curve that was masked by the under-
+  gearing. Motivation: see "Problem" section of
+  `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`.
+
 ## [0.34.6] - 2026-09-13
 
 ### Fixed

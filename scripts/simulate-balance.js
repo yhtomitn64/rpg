@@ -46,7 +46,7 @@ import { rollIncomingDamage, resolveParrySuccess, PARRY_COOLDOWN_MS } from '../j
 import { chooseAction } from './simulateAbilityPolicy.js';
 import { MONSTERS } from '../js/data/monsters.js';
 import { ITEMS } from '../js/data/items.js';
-import { getEquipmentBonuses, upgradeKey, MAX_UPGRADE_LEVEL } from '../js/systems/inventory.js';
+import { getEquipmentBonuses, upgradeKey, MAX_UPGRADE_LEVEL, getMaxUpgradeLevel } from '../js/systems/inventory.js';
 import { applyXp, xpForLevel } from '../js/systems/leveling.js';
 import { createNewGame } from '../js/state.js';
 import { getBossTierStats, MAX_BOSS_TIER } from '../js/systems/bossTiers.js';
@@ -151,13 +151,20 @@ function makeBuild({ name, level, equipment, equipmentTiers = {}, upgrades = {},
   };
 }
 
-// Every slot at Mythic tier, upgrade level 3 (the actual ceiling this
-// feature is meant to raise) - used by the maxed-Mythic NG+2 build below.
-function maxedUpgrades(equipment, equipmentTiers) {
+// Every slot upgraded to the REAL per-cycle ceiling (getMaxUpgradeLevel),
+// not the flat MAX_UPGRADE_LEVEL this used to hardcode regardless of which
+// cycle the build claims to represent - that mismatch is what hid
+// superBossOne's real NG+2 difficulty curve from every simulator run before
+// 2026-09-13 (see docs/superpowers/specs/2026-09-13-superboss-expansion-design.md's
+// Problem section). Defaults to cycle 0, where getMaxUpgradeLevel(0) equals
+// the old flat MAX_UPGRADE_LEVEL exactly, so existing callers that omit the
+// third argument are unaffected.
+function maxedUpgrades(equipment, equipmentTiers, cycle = 0) {
   const upgrades = {};
+  const level = getMaxUpgradeLevel(cycle);
   for (const [slot, itemId] of Object.entries(equipment)) {
     if (!itemId) continue;
-    upgrades[upgradeKey(itemId, equipmentTiers[slot])] = MAX_UPGRADE_LEVEL;
+    upgrades[upgradeKey(itemId, equipmentTiers[slot])] = level;
   }
   return upgrades;
 }
@@ -271,7 +278,7 @@ const BUILDS = [
       level: 12,
       equipment,
       equipmentTiers,
-      upgrades: maxedUpgrades(equipment, equipmentTiers),
+      upgrades: maxedUpgrades(equipment, equipmentTiers, 2),
       potions: 6,
     });
   })(),
@@ -295,7 +302,7 @@ const BUILDS = [
       level: 12,
       equipment,
       equipmentTiers,
-      upgrades: maxedUpgrades(equipment, equipmentTiers),
+      upgrades: maxedUpgrades(equipment, equipmentTiers, 2),
       potions: 6,
     });
   })(),
