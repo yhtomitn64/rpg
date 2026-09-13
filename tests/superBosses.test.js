@@ -239,7 +239,7 @@ test("superBossOne's effective combat stats never vary across many simulated enc
   }
 });
 
-test('every hasDungeon SUPER_BOSSES entry has a well-formed, fully-reachable dungeon map with a walkable start, exactly one exit and one guardian tile, and a guardian matching its own monster', () => {
+test('every hasDungeon SUPER_BOSSES entry has a well-formed, fully-reachable dungeon map with a walkable start, at least one exit tile, exactly one guardian tile, and a guardian matching its own monster', () => {
   for (const [superBossId, entry] of Object.entries(SUPER_BOSSES)) {
     if (!entry.hasDungeon) continue;
     const map = SUPER_BOSS_DUNGEONS[superBossId];
@@ -251,7 +251,13 @@ test('every hasDungeon SUPER_BOSSES entry has a well-formed, fully-reachable dun
 
     const chars = map.rows.join('');
     const tileKeys = [...chars].map((c) => map.legend[c]);
-    assert.equal(tileKeys.filter((k) => k === 'exit').length, 1, `${map.id} must have exactly one exit tile`);
+    // Multiple exit tiles are allowed (raised 2026-09-13, terrain-painter's
+    // own saveNewDungeonBtn now permits it) - js/main.js's exitMap handler
+    // returns the player to this dungeon's own wilderness entrance
+    // regardless of which exit tile they're standing on, so any count works
+    // in the real game. Only the chosen startPosition (below) needs to
+    // actually be tagged 'exit'.
+    assert.ok(tileKeys.filter((k) => k === 'exit').length >= 1, `${map.id} must have at least one exit tile`);
     assert.equal(tileKeys.filter((k) => k === 'guardian').length, 1, `${map.id} must have exactly one guardian tile`);
 
     const { x, y } = map.startPosition;

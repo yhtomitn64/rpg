@@ -144,20 +144,41 @@ export function equipItem(state, itemId, slot, tier) {
 }
 
 // Ring and Accessory (Charm) are slot *types* ('ring'/'accessory' on the
-// item), not physical equipment keys - each is backed by two physical slots
-// (ring1/ring2, accessory1/accessory2) instead of one. Everything below
-// resolves between an item's slot type and those physical keys.
-const DUAL_SLOT_PHYSICAL_KEYS = { ring: ['ring1', 'ring2'], accessory: ['accessory1', 'accessory2'] };
+// item), not physical equipment keys - each is backed by a growing set of
+// physical slots (ring1/ring2/..., accessory1/accessory2/...) instead of a
+// single one. The count scales with New Game Plus progress (see
+// ringSlotCount/accessorySlotCount below - starting counts of 2/2 at NG+
+// cycle 0 match the original fixed pair, uncapped by design past that).
+// Everything below resolves between an item's slot type and those physical
+// keys.
+export function ringSlotCount(ngPlusCycle = 0) {
+  return 2 + 2 * ngPlusCycle;
+}
 
-// Picks which of a dual-slot type's two physical keys an equip action
-// should target: the first empty one, or null when both are already
-// occupied - callers (inventoryScreen.js) use null to offer an explicit
-// choice instead of guessing which one to replace.
+export function accessorySlotCount(ngPlusCycle = 0) {
+  return 2 + 1 * ngPlusCycle;
+}
+
+const DUAL_SLOT_COUNTERS = { ring: ringSlotCount, accessory: accessorySlotCount };
+
+// Every physical equipment key a dual-slot type currently has, for the
+// given NG+ cycle - e.g. physicalKeysFor('ring', 1) -> ['ring1', 'ring2',
+// 'ring3', 'ring4']. Returns undefined for non-dual-slot types (weapon/
+// head/body/legs), where item.slot IS already the physical key.
+export function physicalKeysFor(slotType, ngPlusCycle = 0) {
+  const countFor = DUAL_SLOT_COUNTERS[slotType];
+  if (!countFor) return undefined;
+  const count = countFor(ngPlusCycle);
+  return Array.from({ length: count }, (_, i) => `${slotType}${i + 1}`);
+}
+
+// Picks which of a dual-slot type's currently-unlocked physical keys an
+// equip action should target: the first empty one, or null when every one
+// of them is already occupied - callers (inventoryScreen.js) use null to
+// offer an explicit choice instead of guessing which one to replace.
 export function resolveDualEquipSlot(state, slotType) {
-  const [first, second] = DUAL_SLOT_PHYSICAL_KEYS[slotType];
-  if (!state.equipment[first]) return first;
-  if (!state.equipment[second]) return second;
-  return null;
+  const keys = physicalKeysFor(slotType, state.ngPlusCycle);
+  return keys.find((key) => !state.equipment[key]) ?? null;
 }
 
 export function resolveRingEquipSlot(state) {
@@ -171,24 +192,25 @@ export function resolveAccessoryEquipSlot(state) {
 // Resolves an item's slot *type* (item.slot) to the physical equipment key
 // to compare against. Non-dual-slot items pass through unchanged (item.slot
 // IS already the physical key for those - weapon/head/body/legs). Ring/
-// Accessory items resolve via resolveDualEquipSlot - when both physical
-// slots are already occupied (null returned), falls back to the first of
-// the pair, so the comparison is always well-defined rather than silently
-// comparing against nothing.
+// Accessory items resolve via resolveDualEquipSlot - when every physical
+// slot is already occupied (null returned), falls back to the first of the
+// currently-unlocked keys, so the comparison is always well-defined rather
+// than silently comparing against nothing.
 export function resolvePhysicalSlot(state, item) {
-  const pair = DUAL_SLOT_PHYSICAL_KEYS[item.slot];
-  if (!pair) return item.slot;
-  return resolveDualEquipSlot(state, item.slot) ?? pair[0];
+  const keys = physicalKeysFor(item.slot, state.ngPlusCycle);
+  if (!keys) return item.slot;
+  return resolveDualEquipSlot(state, item.slot) ?? keys[0];
 }
 
 // Every physical equipment key a copy of this item could currently occupy -
-// a single-key array for ordinary slots, the two-key pair for ring/
+// a single-key array for ordinary slots, the NG+-scaled key set for ring/
 // accessory. Used wherever code needs to check every slot a given item
 // might already be sitting in (shop "already equipped" badge, loot
 // reference owned-count), not just where a NEW copy should go next
-// (that's resolvePhysicalSlot's job).
-export function physicalSlotsFor(item) {
-  return DUAL_SLOT_PHYSICAL_KEYS[item.slot] || [item.slot];
+// (that's resolvePhysicalSlot's job). Takes state (not just the item) so it
+// can read state.ngPlusCycle - the key set grows with NG+ progress.
+export function physicalSlotsFor(item, state) {
+  return physicalKeysFor(item.slot, state?.ngPlusCycle) || [item.slot];
 }
 
 export function unequipItem(state, slot) {

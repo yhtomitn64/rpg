@@ -57,6 +57,8 @@ import { ITEMS } from './data/items.js';
 import { FLAVOR_TEXT } from './data/flavorText.js';
 import { showFlavorBanner } from './screens/flavorBanner.js';
 import { formatBattleOutcomeMessage, describeMonsterGroup } from './systems/messageLog.js';
+import { classifyBattleCategory, computeDps } from './systems/battleStats.js';
+import * as dpsChartScreen from './screens/dpsChartScreen.js';
 import { playCelebration, playToolCelebration } from './screens/celebrationEffect.js';
 import { playItemPickupToast } from './screens/itemPickupToast.js';
 import { initItemTooltip } from './screens/itemTooltip.js';
@@ -544,8 +546,24 @@ function openSettings() {
       // handleCloudSaveImport) or adds a brand-new one, so it doesn't
       // disturb whatever's being played right now and needs no reload.
       onCloudSaveImported: (data) => handleCloudSaveImport(data),
+      onOpenDpsChart: () => openDpsChart(),
       onClose: () => unmountOverlay(),
     },
+  });
+}
+
+// Reached from Settings' "View DPS Chart" button, next to Copy Play Log -
+// both read the same telemetry buffer (js/systems/telemetry.js). Replaces
+// Settings on the overlay stack rather than stacking on top of it
+// (mountOverlay always tears down whatever overlay is currently active, see
+// screenManager.js), so closing the chart returns straight to the game, not
+// back to Settings - same one-level-deep navigation every other overlay in
+// this file already uses.
+function openDpsChart() {
+  if (battleActive) return;
+  mountOverlay(dpsChartScreen, {
+    state,
+    callbacks: { onClose: () => unmountOverlay() },
   });
 }
 
@@ -1030,7 +1048,7 @@ function handleEncounter(monsterIds, monsterOverridesList = null) {
   });
 }
 
-function handleBattleEnd(outcome, killedMonsterIds) {
+function handleBattleEnd(outcome, killedMonsterIds, totalDamageDealt = 0) {
   unmountOverlay();
   battleActive = false;
   setHudButtonsEnabled(true);
@@ -1056,6 +1074,16 @@ function handleBattleEnd(outcome, killedMonsterIds) {
     playerLevel: state.player.level,
     hpPercentRemaining: Math.max(0, state.player.hp) / (state.player.maxHp + bonuses.maxHp),
     durationMs: battleDurationMs,
+    // Feeds the in-game DPS chart (js/screens/dpsChartScreen.js, opened from
+    // Settings) - "am I getting stronger over NG+ cycles" needs both a rate
+    // (dps) and what kind of fight it was (category), not just the raw
+    // damage total. totalDamageDealt itself comes from battleScreen.js's own
+    // running per-battle total (see its onBattleEnd's third argument) - it
+    // has to be captured there, before unmountOverlay() above tears that
+    // screen's module state down.
+    totalDamageDealt,
+    dps: computeDps(totalDamageDealt, battleDurationMs),
+    category: classifyBattleCategory(encounterMonsterIds),
   });
   const gearSlots = ['weapon', 'head', 'body', 'legs', 'accessory1', 'accessory2'];
   const playerSnapshot = {

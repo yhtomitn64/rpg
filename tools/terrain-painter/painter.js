@@ -1677,17 +1677,26 @@ async function init() {
       return;
     }
 
+    // Multiple `exit` tiles are fine (raised 2026-09-13 - superBossThree's
+    // dungeon wants two doors, either usable to leave, only one as the
+    // actual spawn) - js/main.js's exitMap handler doesn't look at which
+    // specific exit tile the player is standing on at all, it just returns
+    // them to this dungeon's own wilderness entrance, so any number already
+    // works correctly in the real game. Only startPosition needs picking:
+    // the first exit tile in scan order, same as tests/superBosses.test.js's
+    // own tolerant assertion (start tile must be tagged 'exit', not "the
+    // only one").
     let exitPos = null;
     let exitCount = 0;
     let guardianCount = 0;
     for (let y = 0; y < singleMapH; y++) {
       for (let x = 0; x < singleMapW; x++) {
-        if (singleGrid[y][x] === 'exit') { exitCount++; exitPos = { x, y }; }
+        if (singleGrid[y][x] === 'exit') { exitCount++; if (!exitPos) exitPos = { x, y }; }
         if (singleGrid[y][x] === 'guardian') guardianCount++;
       }
     }
-    if (exitCount !== 1) {
-      alert(`New dungeon needs exactly one 'exit' tile placed (found ${exitCount}) - that's where the player starts.`);
+    if (exitCount < 1) {
+      alert(`New dungeon needs at least one 'exit' tile placed (found ${exitCount}) - that's where the player starts.`);
       return;
     }
     if (guardianCount === 0) {

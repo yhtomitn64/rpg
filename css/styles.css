@@ -69,217 +69,14 @@ body { margin: 0; background: #222; color: #eee; display: flex; flex-direction: 
   flex: 1 1 auto;
   min-height: 0;
   margin: 0 auto;
-  /* A tall obstacle overlaps upward into the row above it (see
-     .map-tile-obstacle below) - clipping here cuts that overflow at the
-     viewport's own edge while leaving every interior overlap untouched. */
+  /* A tall obstacle's sprite can overlap upward past its own tile - clipping
+     here cuts that overflow at the viewport's own edge while leaving every
+     interior overlap untouched. */
   overflow: hidden;
 }
-.map-grid {
-  display: grid;
-  gap: 0;
-  /* Raised, then reverted, 2026-09-09 while chasing the map render perf
-     follow-up (see BACKLOG.md): tried `will-change: transform` here on the
-     theory that panning needed a standing compositor layer to be cheap.
-     Measured live via the Event Timing API: no improvement (if anything,
-     slightly worse - ~208ms avg presentationDelay vs ~173ms before). A real
-     DevTools Performance recording with Paint Flashing on then showed why -
-     a single step flashes the ENTIRE visible viewport green, not just the
-     newly-revealed edge cells, and Layer Borders showed this element's
-     giant (multi-thousand-px, whole-cluster-sized - see renderFull's own
-     comment) box tiled into many raster tiles. Promoting that whole box to
-     one standing layer likely made the browser manage/re-tile more surface
-     than it would otherwise, for no compositor-only-slide benefit - new
-     edge content still has to be painted for the first time every step
-     regardless of layer promotion, since only the visible window's cells
-     ever get real DOM nodes (see cellCache's own comment). Left removed;
-     the real fix (if one exists) is shrinking what actually gets dirtied
-     per step, not forcing this element into a layer.
-  */
-}
-.map-tile {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.2rem;
-  background: #333;
-  position: relative;
-  /* .map-tile-obstacle/.map-tile-fullsize used to size themselves off this
-     tile's own rendered height via `cqb` units, which needed this to be a
-     query container (`container-type: size`) - dropped 2026-09-09:
-     TILE_SIZE_PX (js/screens/mapScreen.js) is a hardcoded constant, never
-     actually variable at runtime, so those spans now just get a plain px
-     font-size computed from it directly, and the per-tile containment
-     context (real layout cost, especially on WebKit, across every visible
-     tile) is gone for free. */
-}
-/* Solid green so adjacent grass tiles blend into one contiguous field
-   instead of reading as separate boxes - see js/screens/mapScreen.js. */
-.map-tile-grass {
-  background: #3f6b34;
-}
-/* Solid blue so adjacent water tiles blend into one contiguous body of
-   water instead of reading as separate boxes - see js/screens/mapScreen.js. */
-.map-tile-water {
-  background: #2b6cb0;
-}
-/* Loops for as long as at least one quest is turn-in ready (toggled per-
-   render in mapScreen.js off hasAnyQuestReady) - visible from a distance
-   on the town map instead of only discoverable by walking up to the
-   board and checking. box-shadow rather than background/filter so it
-   doesn't fight the tile's own grass background or the questBoard emoji
-   underneath. */
-.map-tile-quest-ready {
-  animation: map-tile-quest-glow 1.6s ease-in-out infinite;
-}
-@keyframes map-tile-quest-glow {
-  0%, 100% { box-shadow: inset 0 0 6px 2px rgba(255, 215, 0, 0.3); }
-  50% { box-shadow: inset 0 0 14px 6px rgba(255, 215, 0, 0.85); }
-}
-.map-tile-mount {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.2rem;
-}
-.map-tile-rider {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  font-size: 0.85rem;
-  transform: translateY(-3px);
-  pointer-events: none;
-}
-/* Non-moving obstacles (tree/mountain/thicket) render larger than their
-   own cell and anchored to its bottom edge, so a tall one visually
-   overlaps into the row above instead of floating small and centered -
-   see js/screens/mapScreen.js. font-size is set inline per tile in px (a
-   deterministic per-position random size, 100-150% of FULL_SQUARE_PX
-   below) - a fixed px value works because TILE_SIZE_PX is a hardcoded
-   constant, never actually variable at runtime (dropped the `cqb`/
-   `container-type: size` this used to need 2026-09-09, once that became
-   clear - see .map-tile's own comment above). */
-.map-tile-obstacle {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  line-height: 1;
-  z-index: 2;
-  pointer-events: none;
-}
-/* Landmarks that need to be spotted at a glance (town, cave/dungeon
-   entrances, loot) and the hero's own tile. font-size is set inline in px
-   from js/screens/mapScreen.js's FULL_SQUARE_PX/HERO_AND_LOOT_PX/
-   GUARDIAN_PX (a child span, not a class on the cell, so a portal's own
-   crop wrapper - .map-tile-portal-crop below - can still scale it). */
-.map-tile-fullsize {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-/* Raised 2026-09-07, replacing the 2026-09-06 version above: the 🌌
-   emoji's own art is a framed picture with a pale border baked into the
-   glyph itself, not CSS - the old inset glow read as a "white border"
-   fighting that art instead of complementing it. Worked out in an
-   interactive mockup published as an Artifact
-   (docs/superpowers/scratch/portal-edge-lab.html, "Portal Edge Lab"),
-   iterated live with Timothy over a couple of rounds (a bled circular
-   halo, then a shadow shaped like the tile) before landing on just
-   cropping the border out entirely:
-   .map-tile-portal-crop below renders the marker oversized and clips
-   it back to the tile's own edge, so the pale border scales past the
-   visible area instead of sitting on top of it. Raised again 2026-09-12:
-   the shadow-shaped-like-the-tile version above read as a plain black
-   square in practice, not a soft bleed - removed, emoji only. */
-/* Clips the 🌌 emoji's own baked-in border - see the comment above. The
-   marker (.map-tile-fullsize) renders at its usual FULL_SQUARE_PX size
-   inside here, then gets scaled up past this wrapper's own edge by the sibling rule
-   below; overflow: hidden cuts off exactly what that scale pushes past
-   the tile's boundary. Two elements are required for this to crop
-   anything: transforming this wrapper itself would scale its own clip
-   region right along with its content, clipping nothing. */
-.map-tile-portal-crop {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-}
-/* 1.36x landed by eye in the Artifact mockup's live slider - enough to
-   push the border past the crop's edge while still reading as a starry-
-   sky picture rather than abstract color. */
-.map-tile-portal-crop .map-tile-fullsize {
-  transform: scale(1.36);
-}
-/* Raised 2026-09-06: "add effect to portal that kind of follows the
-   character so it looks like it's trying to suck you in" - and, same
-   session, "it instantly ports you to town" (an abrupt cut, no
-   transition). Added to the player's own .map-tile-fullsize marker by
-   mapScreen.js's playPortalPullEffect, right where a portal action tile
-   would otherwise fire its callback immediately - the callback is now
-   delayed to match (PORTAL_PULL_EFFECT_MS there, kept in sync with this
-   animation's duration by hand). Spins/shrinks/fades toward the tile's
-   own center and brightens, reading as being drawn into the portal
-   rather than just disappearing. */
-@keyframes map-tile-player-portal-pull {
-  0% { transform: scale(1) rotate(0deg); opacity: 1; filter: brightness(1); }
-  100% { transform: scale(0.15) rotate(35deg); opacity: 0; filter: brightness(2.2); }
-}
-.map-tile-player-portal-pull {
-  animation: map-tile-player-portal-pull 420ms ease-in forwards;
-}
-/* Grass decorations (clover/flower): smaller than the tile, placed at a
-   random spot via left/top (not dead-center) so a field of them scatters
-   naturally instead of forming a grid of centered icons. left/top and
-   font-size are set inline per tile - see js/screens/mapScreen.js. */
-.map-tile-decoration {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  line-height: 1;
-  pointer-events: none;
-}
-/* Town's always-on in-world label for shop/smith/quest-board/well - a
-   short wooden plank anchored to the top of the tile, overflowing
-   upward into the row above (same visual trick .map-tile-obstacle uses
-   to overlap into the row above it) so it reads as planted next to the
-   feature rather than fighting its emoji for space. Text is set inline
-   per tile - see SIGN_LABEL_BY_TILE in js/screens/mapScreen.js. */
-.map-tile-signpost {
-  position: absolute;
-  left: 50%;
-  bottom: 100%;
-  transform: translateX(-50%);
-  background: #8a5a2b;
-  border: 1px solid #5c3a19;
-  color: #fff5e0;
-  padding: 1px 6px;
-  border-radius: 2px;
-  font-size: 0.6rem;
-  font-weight: 700;
-  white-space: nowrap;
-  line-height: 1.4;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  pointer-events: none;
-}
-
-.map-tile-trail {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
 /* The canvas renderer (js/screens/mapCanvasRenderer.js) draws every tile
-   into this single element instead of the .map-grid of .map-tile divs above.
-   All the .map-tile-* rules above it are the DOM renderer's, still reachable
-   via ?renderer=dom - see mapDomRenderer.js's own header for when they go. */
+   into this single element - see js/systems/mapDrawList.js for the pure
+   data (glyphs, sizes, paint order) it draws from. */
 .map-canvas {
   display: block;
   width: 100%;
@@ -1522,6 +1319,42 @@ button:focus-visible {
   overflow-y: auto;
   max-height: 55vh;
 }
+
+.dps-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 0.9em;
+}
+.dps-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.dps-chart-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+#dps-chart-canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+}
+/* Canvas fallback content (see dpsChartScreen.js's own header): real
+   browsers never paint these spans once the canvas itself renders, so this
+   just keeps them from flashing visible during the instant before that. */
+.dps-chart-point {
+  display: none;
+}
+#dps-chart-empty-state {
+  opacity: 0.8;
+  padding: 24px 0;
+}
 .boss-tier-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -1540,86 +1373,8 @@ button:focus-visible {
   line-height: 1.4;
 }
 
-.map-tile-player {
-  position: relative;
-  /* No fixed z-index here on purpose: depth is now sorted per-row (see
-     mapScreen.js's render(), which sets each .map-tile's z-index to its
-     own row). A tall obstacle in the row below correctly overlaps in
-     front of the player standing in the row above it, rather than the
-     player always winning regardless of position. */
-}
-.map-tile-player.map-tile-levelup {
-  animation: map-tile-levelup-pulse 1.2s ease-out;
-}
-@keyframes map-tile-levelup-pulse {
-  0% { transform: scale(1); }
-  30% { transform: scale(2.2); }
-  100% { transform: scale(1); }
-}
-.map-levelup-rays {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 300%;
-  height: 300%;
-  transform: translate(-50%, -50%) scale(0.2) rotate(0deg);
-  background: repeating-conic-gradient(from 0deg, rgba(255, 245, 160, 0.7) 0deg 8deg, transparent 8deg 24deg);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: -1;
-  animation: map-levelup-rays-burst 1.2s ease-out forwards;
-}
-@keyframes map-levelup-rays-burst {
-  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.2) rotate(0deg); }
-  30% { opacity: 1; }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.4) rotate(60deg); }
-}
-
 .battle-monster-emoji {
   font-size: 4rem;
-}
-
-/* Well healing effect (js/screens/mapScreen.js's playWellHealEffect) - a
-   blue ring collapses onto the player's own tile as they heal, ending in a
-   soft glow bloom right as it lands. Same translate(-50%,-50%) centering
-   trick as .map-levelup-rays above, positive z-index (not that one's -1)
-   since this should read as arriving ON the character, not glowing out
-   from behind them. */
-@keyframes map-well-heal-ring {
-  0% { transform: translate(-50%, -50%) scale(24); opacity: 0.9; border-width: 2px; }
-  70% { opacity: 0.9; border-width: 4px; }
-  100% { transform: translate(-50%, -50%) scale(1); opacity: 0; border-width: 6px; }
-}
-.map-well-heal-ring {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  border: 4px solid rgba(90, 170, 255, 0.9);
-  background: radial-gradient(circle, rgba(90, 170, 255, 0.25), transparent 70%);
-  pointer-events: none;
-  z-index: 2;
-  animation: map-well-heal-ring 1.1s cubic-bezier(0.3, 0.6, 0.3, 1) forwards;
-}
-@keyframes map-well-heal-glow {
-  0% { transform: translate(-50%, -50%) scale(0.3); opacity: 0.9; }
-  100% { transform: translate(-50%, -50%) scale(1.4); opacity: 0; }
-}
-.map-well-heal-glow {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 60%;
-  height: 60%;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(120, 190, 255, 0.55), transparent 70%);
-  pointer-events: none;
-  z-index: 2;
-  opacity: 0;
-  transform: translate(-50%, -50%) scale(0.3);
-  animation: map-well-heal-glow 700ms ease-out 750ms forwards;
 }
 
 .stats-slot {

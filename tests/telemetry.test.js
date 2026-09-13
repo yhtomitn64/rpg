@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  startSession, logEvent, flushNow, getBufferAsJsonl, isServerAvailable,
+  startSession, logEvent, flushNow, getBufferAsJsonl, getBufferedEvents, isServerAvailable,
   STORAGE_KEY, MAX_BUFFERED_EVENTS, FLUSH_EVENT_THRESHOLD,
 } from '../js/systems/telemetry.js';
 
@@ -146,6 +146,27 @@ test('startSession does not resurrect already-flushed events into the new pendin
   // But it's still in the buffer for Copy Play Log, just not re-sent.
   const events = getBufferAsJsonl().split('\n').filter(Boolean).map((line) => JSON.parse(line));
   assert.equal(events.length, 2);
+});
+
+test('getBufferedEvents returns real objects (not a string to re-parse) matching the JSONL buffer', () => {
+  const storage = createFakeStorage();
+  startSession({ storage });
+  logEvent('battle_end', { outcome: 'won', dps: 12.5 }, { storage, fetchImpl: fakeFetch([{ ok: true }]) });
+  logEvent('battle_end', { outcome: 'lost', dps: 3.2 }, { storage, fetchImpl: fakeFetch([{ ok: true }]) });
+  const events = getBufferedEvents();
+  assert.equal(events.length, 2);
+  assert.equal(events[0].dps, 12.5);
+  assert.equal(events[1].outcome, 'lost');
+  assert.deepEqual(events, getBufferAsJsonl().split('\n').map((line) => JSON.parse(line)));
+});
+
+test('getBufferedEvents returns a copy - mutating the result does not affect the real buffer', () => {
+  const storage = createFakeStorage();
+  startSession({ storage });
+  logEvent('battle_end', { outcome: 'won' }, { storage, fetchImpl: fakeFetch([{ ok: true }]) });
+  const events = getBufferedEvents();
+  events.push({ type: 'fake', outcome: 'injected' });
+  assert.equal(getBufferedEvents().length, 1);
 });
 
 test('envelope fields cannot be clobbered by payload', () => {

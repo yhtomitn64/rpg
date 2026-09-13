@@ -7,7 +7,8 @@ import {
   maxAffordableQuantity, describeItem, upgradeKey, getUpgradeLevel, migrateUpgradesToPerTier, sellDuplicateGear,
   hasDuplicateGearToSell, formatStatDelta, getMaxUpgradeLevel,
   canReforgeToMythic, reforgeToMythic, REFORGE_GOLD_COST, REFORGE_ESSENCE_COST,
-  resolveRingEquipSlot,
+  resolveRingEquipSlot, ringSlotCount, accessorySlotCount, physicalKeysFor,
+  resolveDualEquipSlot, resolvePhysicalSlot, physicalSlotsFor,
 } from '../js/systems/inventory.js';
 import { ITEMS } from '../js/data/items.js';
 
@@ -659,6 +660,88 @@ test('resolveRingEquipSlot picks ring1 first, then ring2, then null when both ar
   assert.equal(resolveRingEquipSlot(oneFull), 'ring2');
   const bothFull = { equipment: { ring1: 'emberRing', ring2: 'windfuryRing' } };
   assert.equal(resolveRingEquipSlot(bothFull), null);
+});
+
+// NG+ slot scaling (2 + 2N rings, 2 + 1N charms, uncapped) - see the
+// superboss-expansion task spec. NG+0 (N=0) must still match the original
+// fixed 2/2 slot counts above.
+test('ringSlotCount grows by 2 per NG+ cycle starting from 2 at cycle 0', () => {
+  assert.equal(ringSlotCount(0), 2);
+  assert.equal(ringSlotCount(1), 4);
+  assert.equal(ringSlotCount(2), 6);
+  assert.equal(ringSlotCount(3), 8);
+});
+
+test('accessorySlotCount grows by 1 per NG+ cycle starting from 2 at cycle 0', () => {
+  assert.equal(accessorySlotCount(0), 2);
+  assert.equal(accessorySlotCount(1), 3);
+  assert.equal(accessorySlotCount(2), 4);
+  assert.equal(accessorySlotCount(3), 5);
+});
+
+test('physicalKeysFor returns the numbered physical keys for the current NG+ cycle', () => {
+  assert.deepEqual(physicalKeysFor('ring', 0), ['ring1', 'ring2']);
+  assert.deepEqual(physicalKeysFor('ring', 1), ['ring1', 'ring2', 'ring3', 'ring4']);
+  assert.deepEqual(physicalKeysFor('accessory', 0), ['accessory1', 'accessory2']);
+  assert.deepEqual(physicalKeysFor('accessory', 1), ['accessory1', 'accessory2', 'accessory3']);
+  assert.deepEqual(physicalKeysFor('accessory', 2), ['accessory1', 'accessory2', 'accessory3', 'accessory4']);
+});
+
+test('physicalKeysFor defaults to cycle 0 when ngPlusCycle is omitted, matching the original fixed pair', () => {
+  assert.deepEqual(physicalKeysFor('ring'), ['ring1', 'ring2']);
+  assert.deepEqual(physicalKeysFor('accessory'), ['accessory1', 'accessory2']);
+});
+
+test('physicalKeysFor returns undefined for non-dual-slot types (weapon/head/body/legs)', () => {
+  assert.equal(physicalKeysFor('weapon', 0), undefined);
+});
+
+test('resolveDualEquipSlot finds an empty slot beyond ring1/ring2 once NG+ has unlocked ring3/ring4', () => {
+  const state = {
+    ngPlusCycle: 1,
+    equipment: { ring1: 'emberRing', ring2: 'windfuryRing', ring3: null, ring4: null },
+  };
+  assert.equal(resolveDualEquipSlot(state, 'ring'), 'ring3');
+});
+
+test('resolveDualEquipSlot returns null only once every NG+-scaled slot is full', () => {
+  const state = {
+    ngPlusCycle: 1,
+    equipment: { ring1: 'emberRing', ring2: 'windfuryRing', ring3: 'powerRing', ring4: 'parryMasterRing' },
+  };
+  assert.equal(resolveDualEquipSlot(state, 'ring'), null);
+});
+
+test('resolvePhysicalSlot falls back to ring1 (not the old fixed pair[0]) once every NG+-scaled ring slot is full', () => {
+  const state = {
+    ngPlusCycle: 1,
+    equipment: { ring1: 'emberRing', ring2: 'windfuryRing', ring3: 'powerRing', ring4: 'parryMasterRing' },
+  };
+  assert.equal(resolvePhysicalSlot(state, ITEMS.stormringOfHaste), 'ring1');
+});
+
+test('physicalSlotsFor reports every NG+-scaled physical key for a slot type, not just the original pair', () => {
+  const state = { ngPlusCycle: 1, equipment: {} };
+  assert.deepEqual(physicalSlotsFor(ITEMS.powerRing, state), ['ring1', 'ring2', 'ring3', 'ring4']);
+  assert.deepEqual(physicalSlotsFor(ITEMS.luckyCharm, state), ['accessory1', 'accessory2', 'accessory3']);
+});
+
+test('equipItem can target a ring slot beyond the original pair (ring3) once NG+ has unlocked it', () => {
+  let state = createNewGame();
+  state = { ...state, ngPlusCycle: 1, equipment: { ...state.equipment, ring3: null, ring4: null } };
+  state = addItem(state, 'powerRing', 1);
+  state = equipItem(state, 'powerRing', 'ring3');
+  assert.equal(state.equipment.ring3, 'powerRing');
+});
+
+test('getEquipmentBonuses includes stats from a higher-numbered ring slot (ring3) once NG+ has unlocked it', () => {
+  let state = createNewGame();
+  state = { ...state, ngPlusCycle: 1, equipment: { ...state.equipment, ring3: null, ring4: null } };
+  const before = getEquipmentBonuses(state).attack; // starterSword's +3, equipped by default
+  state = addItem(state, 'powerRing', 1);
+  state = equipItem(state, 'powerRing', 'ring3');
+  const bonuses = getEquipmentBonuses(state);
+  assert.equal(bonuses.attack, before + 2); // powerRing's stats.attack, on top of the starter sword
 });
 
 test('reforgeToMythic throws when short on gold or essence', () => {

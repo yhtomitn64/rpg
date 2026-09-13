@@ -5,9 +5,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, teardownDom } from './helpers/dom.js';
-import { createNewGame } from '../js/state.js';
-import { townMap } from '../js/maps/townMap.js';
-import { buildWorldGrid } from '../js/systems/worldGrid.js';
 
 function buildCelebrationDom() {
   document.body.innerHTML = `
@@ -18,42 +15,31 @@ function buildCelebrationDom() {
   `;
 }
 
-// celebrationEffect.js used to find the hero by querying for a
-// '.map-tile-player' element, which only the DOM renderer ever produced -
-// the canvas renderer has no per-tile elements at all. It now asks
-// mapScreen.getPlayerScreenRect() instead, so this mounts a real map and
-// stubs the found cell's rect (jsdom has no layout engine, so a real
-// getBoundingClientRect there is all zeros) rather than faking a loose
-// element on document.body that nothing would actually consult.
-async function mountMapWithPlayerRect(rect) {
-  const { mount } = await import('../js/screens/mapScreen.js');
-  const root = document.createElement('div');
-  document.body.appendChild(root);
-  const maps = { town: townMap };
-  mount(root, {
-    renderer: 'dom',
-    state: { ...createNewGame(), position: { ...townMap.startPosition } },
-    mapConfig: townMap,
-    maps,
-    worldGrid: buildWorldGrid(maps),
-    callbacks: { onFirstVisit: () => {} },
-  });
-  const playerCell = root.querySelector('.map-tile-player');
-  assert.ok(playerCell, 'expected the mounted map to render a player tile');
-  playerCell.getBoundingClientRect = () => rect;
+// celebrationEffect.js asks mapScreen.getPlayerScreenRect() for the hero's
+// on-screen rect rather than querying a '.map-tile-player' element itself -
+// see anchorBurstToPlayer's own comment there. The canvas renderer (the only
+// one left now that js/screens/mapDomRenderer.js is gone) has no real rect to
+// give under jsdom at all: jsdom ships no canvas 2d context, so
+// getContext('2d') returns null and the renderer never records a player tile
+// position. mapScreen exposes __setPlayerScreenRectForTest for exactly this
+// gap - it overrides getPlayerScreenRect()'s answer directly, so this file
+// doesn't need to mount a real map at all.
+async function stubPlayerScreenRect(rect) {
+  const { __setPlayerScreenRectForTest } = await import('../js/screens/mapScreen.js');
+  __setPlayerScreenRectForTest(rect);
 }
 
 test('celebrationEffect', async (t) => {
   t.beforeEach(() => setupDom());
   t.afterEach(async () => {
-    const { unmount } = await import('../js/screens/mapScreen.js');
-    unmount();
+    const { __setPlayerScreenRectForTest } = await import('../js/screens/mapScreen.js');
+    __setPlayerScreenRectForTest(null);
     teardownDom();
   });
 
   await t.test('playToolCelebration anchors the burst to the player tile when one exists', async () => {
     buildCelebrationDom();
-    await mountMapWithPlayerRect({ left: 100, top: 200, width: 40, height: 40, right: 140, bottom: 240 });
+    await stubPlayerScreenRect({ left: 100, top: 200, width: 40, height: 40, right: 140, bottom: 240 });
 
     const { playToolCelebration } = await import('../js/screens/celebrationEffect.js');
     playToolCelebration('🪓', 'msg', 'capability');
@@ -63,8 +49,10 @@ test('celebrationEffect', async (t) => {
     assert.equal(burstEl.style.top, '220px');
   });
 
-  await t.test('playToolCelebration falls back to the default center position when no map is mounted', async () => {
+  await t.test('playToolCelebration falls back to the default center position when no player rect is available', async () => {
     buildCelebrationDom();
+    // No stub set - getPlayerScreenRect() returns null exactly as it does
+    // with no map mounted at all.
 
     const { playToolCelebration } = await import('../js/screens/celebrationEffect.js');
     playToolCelebration('🪓', 'msg', 'capability');
@@ -76,7 +64,7 @@ test('celebrationEffect', async (t) => {
 
   await t.test('playCelebration clears any leftover player-anchored position from a prior tool celebration', async () => {
     buildCelebrationDom();
-    await mountMapWithPlayerRect({ left: 100, top: 200, width: 40, height: 40, right: 140, bottom: 240 });
+    await stubPlayerScreenRect({ left: 100, top: 200, width: 40, height: 40, right: 140, bottom: 240 });
 
     const { playCelebration, playToolCelebration } = await import('../js/screens/celebrationEffect.js');
     playToolCelebration('🪓', 'msg', 'capability');

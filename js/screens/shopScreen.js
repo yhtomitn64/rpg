@@ -107,7 +107,7 @@ function itemCardHtml(itemId) {
   // accessory items have two - see physicalSlotsFor), not just item.slot
   // itself, which is never a real physical equipment key for those.
   const isEquipped = item.slot
-    && physicalSlotsFor(item).some((slot) => state.equipment[slot] === itemId && !state.equipmentTiers?.[slot]);
+    && physicalSlotsFor(item, state).some((slot) => state.equipment[slot] === itemId && !state.equipmentTiers?.[slot]);
   const isConsumable = item.type === 'consumable';
   const buyQty = isConsumable ? selectedQty : 1; // see CONSUMABLE_BUY_QUANTITIES's comment above
   const affordable = maxAffordableQuantity(state.player.gold, item.price, buyQty) === buyQty;
@@ -229,7 +229,7 @@ function buyItem(itemId, quantity = 1) {
   let next = spendGold(state, item.price * quantity);
   next = addItem(next, itemId, quantity);
   Object.assign(state, next);
-  const alreadyEquipped = item.slot && physicalSlotsFor(item).some((slot) => state.equipment[slot] === itemId);
+  const alreadyEquipped = item.slot && physicalSlotsFor(item, state).some((slot) => state.equipment[slot] === itemId);
   if (item.slot && !alreadyEquipped && !pendingEquipQueue.includes(itemId)) {
     pendingEquipQueue.push(itemId);
   }

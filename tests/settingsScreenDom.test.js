@@ -126,6 +126,13 @@ test('settingsScreen DOM', async (t) => {
     assert.ok(fallback.value.includes('"toolId":"axe"'));
   });
 
+  await t.test('DPS Chart button calls onOpenDpsChart', async () => {
+    let opened = 0;
+    const root = await mountSettings(createNewGame(), { onChange: () => {}, onClose: () => {}, onOpenDpsChart: () => { opened += 1; } });
+    click(root.querySelector('#btn-open-dps-chart'));
+    assert.equal(opened, 1);
+  });
+
   await t.test('the Sound section is hidden until the audioBeta feature flag is enabled', async () => {
     const state = createNewGame();
     const root = await mountSettings(state);

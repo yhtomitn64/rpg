@@ -32,11 +32,9 @@ import {
   GROUND_COLOR_DEFAULT,
 } from './mapRenderModel.js';
 
-// CSS rem values from css/styles.css resolved to real pixels, since canvas
-// has no rem to resolve against. Each assumes the document's default 16px
-// root font size, exactly as every other rem in that stylesheet already
-// does. The DOM renderer keeps using the CSS; these are the canvas
-// renderer's translation of the same numbers.
+// CSS rem values, resolved to real pixels since canvas has no rem to resolve
+// against. Each assumes the document's default 16px root font size, exactly
+// as every other rem in the rest of css/styles.css does.
 const TILE_FONT_PX = 1.2 * 16;      // .map-tile's own font-size (the plain fallback branch)
 const MOUNT_FONT_PX = 1.2 * 16;     // .map-tile-mount
 const RIDER_FONT_PX = 0.85 * 16;    // .map-tile-rider
@@ -74,8 +72,7 @@ export function describeSignature(signature) {
 // from what the SVG produced.
 //
 // The design this encodes (see docs/superpowers/specs/2026-08-25-worn-path-
-// trail-design.md, and the long comment on buildTrailFragment in
-// mapDomRenderer.js): each stroke's color tapers from this tile's own wear
+// trail-design.md): each stroke's color tapers from this tile's own wear
 // at the center toward the *border fraction* it shares with the connected
 // neighbor at the edge - not the neighbor's own raw fraction, which put two
 // different colors on the same physical point and produced a hard color wall
@@ -134,17 +131,13 @@ function buildTrailOp(ctx, gx, gy, signature) {
   };
 }
 
-// Every op for one tile, in paint order within that tile. Mirrors
-// applyCellContent's branch structure in mapDomRenderer.js exactly - the two
-// have to agree, since `?renderer=dom` lets them be compared side by side on
-// the same save.
+// Every op for one tile, in paint order within that tile.
 function buildCellOps(ctx, gx, gy, signature, out) {
   if (!signature.resolved) {
     // Reachable whenever the viewport is bigger than the current screen's
     // whole cluster (computeViewportOrigin centers it instead of panning past
     // its edges) - true for town, mini-dungeons and tool dungeons. These
-    // padding cells render as bare ground, the same as .map-tile's own
-    // default background did.
+    // padding cells render as bare ground.
     out.push({ op: 'ground', gx, gy, color: GROUND_COLOR_DEFAULT });
     return;
   }

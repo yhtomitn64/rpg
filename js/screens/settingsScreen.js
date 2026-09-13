@@ -176,6 +176,7 @@ function render() {
       <div class="settings-row settings-play-log">
         <span>Play Log</span>
         <button id="btn-copy-play-log">Copy Play Log</button>
+        <button id="btn-open-dps-chart">DPS Chart</button>
         <span id="play-log-status" hidden></span>
       </div>
       <textarea id="play-log-fallback" readonly hidden></textarea>
@@ -320,6 +321,7 @@ function render() {
     callbacks.onChange();
   };
   document.getElementById('btn-copy-play-log').onclick = () => copyPlayLog();
+  document.getElementById('btn-open-dps-chart').onclick = () => callbacks.onOpenDpsChart();
   document.getElementById('settings-show-xp-in-hud').onchange = (e) => {
     state.settings = { ...state.settings, showXpInHud: e.target.checked };
     callbacks.onChange(); // main.js's onChange re-renders the HUD, so this shows/hides behind the open overlay

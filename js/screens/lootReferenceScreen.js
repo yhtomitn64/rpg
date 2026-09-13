@@ -22,7 +22,7 @@ function ownedQuantity(itemId) {
     .filter((entry) => entry.itemId === itemId)
     .reduce((sum, entry) => sum + entry.quantity, 0);
   const equippedQty = item.slot
-    ? physicalSlotsFor(item).filter((slot) => state.equipment[slot] === itemId).length
+    ? physicalSlotsFor(item, state).filter((slot) => state.equipment[slot] === itemId).length
     : 0;
   return inventoryQty + equippedQty;
 }

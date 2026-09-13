@@ -66,9 +66,11 @@ of the three-session balance queue above — separate initiative):**
   entry in the Multi-zone progression section below (under the original
   uncap bullet).
 - ~~**Deploy workflow: pin the wrangler CLI version**~~ **shipped
-  2026-09-04 (0.24.2, hotfixed as 0.24.3 the same day)** — the minor CI
-  cleanup (`--commit-dirty=true`) is still deferred, not urgent.
-  See the Infrastructure / deployment section below.
+  2026-09-04 (0.24.2, hotfixed as 0.24.3 the same day)**, and the minor
+  `--commit-dirty=true` CI cleanup this line used to call "still
+  deferred, not urgent" **also shipped, 2026-09-07 (0.26.7)** — this
+  index line was never updated when that landed. See the Infrastructure
+  / deployment section below.
 - **Puzzle mechanics, raised 2026-09-04** — water picked as the flavor to
   explore first; a first brainstorming pass this same session captured
   trench-fill/poison-drain (share one flood-fill engine, no new painter
@@ -90,7 +92,7 @@ of the three-session balance queue above — separate initiative):**
   - New: NG+ cycle should raise axe/pick/canoe drop chance from regular mobs (raw idea); possibly ties to roaming enemies gated to NG+2+ (raw idea).
   - ~~**Parry window/simulator-trust gap, sharpened**~~ — **Shipped 2026-09-01 as session 1 of the balance-tuning queue (see the top summary above).** Duplicate leftover index line, never removed when that shipped.
   - Terrain painter: zone-switcher (deliberately deferred), dungeon-interior painting (in progress/done, check session history).
-  - **Terrain painter: support multiple `exit` tiles per dungeon interior, raised 2026-09-13** — Timothy tried painting two doors while authoring `superBossThree`'s dungeon (either should let you leave, only one should be where you spawn) and got blocked by "Terrain Painter"'s `saveNewDungeonBtn` handler, which hard-requires exactly one `exit` tile (`tools/terrain-painter/painter.js`, `exitCount !== 1` check) and reuses it as `startPosition`. Confirmed this is purely an editor-side restriction, not a game-engine one: `js/main.js`'s `exitMap` action handler (~line 650) doesn't look at which specific `exit` tile the player is standing on at all — it looks up which dungeon `state.map` is and always returns the player to that dungeon's own wilderness entrance, so any number of `exit` tiles would already behave correctly today. The fix is small: drop the `exitCount !== 1` requirement in favor of `exitCount >= 1`, and let the author designate which one is `startPosition` (simplest: the first `exit` tile in scan order, though a more deliberate "click to mark this one as the spawn" UI step would be more robust to future edits). `tests/superBosses.test.js`'s own assertion (`startPosition` must land on an `exit` tile) already tolerates multiple exits fine as written — it only checks that the *chosen* start tile is tagged `exit`, not that there's exactly one in the whole map.
+  - ~~**Terrain painter: support multiple `exit` tiles per dungeon interior**~~ — **shipped 2026-09-13 (0.36.0)**, exactly as scoped when raised the same day: `saveNewDungeonBtn`'s `exitCount !== 1` check became `exitCount < 1`, the first `exit` tile in scan order becomes `startPosition`, and `tests/superBosses.test.js`'s reachability assertion loosened to `>= 1`. See CHANGELOG.md's 0.36.0 entry.
   - ~~Staged/tool-sequence-aware reachability checker~~ — **shipped
     2026-09-13 (0.35.3)**: `checkProgression()`
     (`tools/terrain-painter/reachability.js`) rewritten as a fixed-point/
@@ -389,8 +391,9 @@ same-day items below; these are the ones left open):**
     it avoids freezing by lurching, which is its own stutter, and the
     obvious single metric would have shipped it. Do this again before
     optimising anything in this loop.
-- **Delete the DOM map renderer scaffolding, raised 2026-09-10.** See
-  the "Delete the DOM map renderer scaffolding" section below.
+- ~~**Delete the DOM map renderer scaffolding**~~, raised 2026-09-10 —
+  **shipped 2026-09-13 (0.36.0)**. See the "Delete the DOM map renderer
+  scaffolding" section below for the full removal list.
 - ~~**Residual walk micro-stutter, raised 2026-09-10.**~~ — **fixed
   2026-09-10 (0.32.4).** It was not the two-rAF-loops thing this entry
   used to blame, and merging those loops was measured and found to buy
@@ -407,9 +410,10 @@ same-day items below; these are the ones left open):**
   pure draw list (`js/systems/mapDrawList.js`), painted by
   `js/screens/mapCanvasRenderer.js`. See BACKLOG_SHIPPED.md's "Map
   render performance / canvas map renderer" section for the full
-  investigation and elimination log. **Two follow-ups from it are still
-  open — see "Delete the DOM map renderer scaffolding" and "Hero draws
-  over obstacles in the row below" below.**
+  investigation and elimination log. **One follow-up from it is still
+  open — see "Hero draws over obstacles in the row below" below** (the
+  other, deleting the DOM renderer scaffolding, shipped 2026-09-13,
+  0.36.0 — see that section further up this file).
 - ~~**Boat proximity-hint text said "clear" the water, which doesn't make
   sense for a boat**~~ — **shipped 2026-09-09 (0.26.14)**. See the fuller
   entry in the Bugs / open questions section below.
@@ -517,10 +521,10 @@ same-day items below; these are the ones left open):**
 - ~~**Instant-resolve (no fight dialog) only fires on very weak solo
   mobs**~~ — **shipped 2026-09-10 (0.30.0)**. Groups now qualify too,
   when every monster in them is outclassed. See BACKLOG_SHIPPED.md.
-- **Faultline's chain blocks every other input while it resolves** —
-  you can't act until the sweep has finished walking the whole enemy
-  row. See the "Faultline's sweep locks out other abilities" section
-  below. Not started.
+- ~~**Faultline's chain blocks every other input while it resolves**~~ —
+  **shipped 2026-09-13 (0.36.0)**. See the "Faultline's sweep locks out
+  other abilities" section below for the fix (and the one deliberately
+  deferred follow-up it left behind).
 - **Watch whether 20s buff potions stack too hard** — duration went
   12s → 20s in 0.27.4. Since different potions stack, a two- or
   three-potion opening now comfortably spans a whole fight rather than
@@ -604,7 +608,31 @@ same-day items below; these are the ones left open):**
   coverage, debut-window gating), raised by final review.** Three
   related threads out of the final whole-branch review of
   `feature/superboss-expansion`; see the "Superboss expansion
-  follow-ups" section below.
+  follow-ups" section below. **The simulator-fidelity thread (the flat
+  6-potion cap) shipped 2026-09-13 (0.36.0)** — the other two
+  (midpoint sweep rows, debut-window ceiling) are still open.
+- ~~**Ring/charm equip slots should keep growing with NG+, raised
+  2026-09-13.**~~ **Shipped 2026-09-13 (0.36.0).** Timothy's own ask:
+  "I want to be able to have like 10 rings equipped and I'm okay if it
+  messes up balance... each NG+ you can equip two more rings. Also 1
+  more charm... no cap actually just increase rings by 2 and charm by
+  each cycle." Implemented exactly as specified — `2 + 2*cycle` ring
+  slots, `2 + 1*cycle` charm slots, uncapped, deliberately unbalanced.
+  See CHANGELOG.md's 0.36.0 entry and the Multi-zone progression
+  section's own ring/charm-idea-backlog bullet (a different, unrelated
+  thread — new ring/charm *items*, not slot count).
+- ~~**Battle DPS log + in-game chart, raised 2026-09-13.**~~ **Shipped
+  2026-09-13 (0.36.0).** Timothy: "let's make sure we have a log of
+  battle DPS and an in game chart so you can compare how you are doing
+  over time on regular mobs and bosses as you go through NG+ to see if
+  you are getting strong." New "DPS Chart" button in Settings plots
+  DPS-per-fight over time, colored by regular/boss/superboss, with NG+
+  cycle-boundary markers. See CHANGELOG.md's 0.36.0 entry. **Known
+  limitation, not addressed**: the telemetry buffer this reads from
+  caps at 2000 events across every event type (not just battles), so a
+  long play session may push early fights out of range before you go
+  looking for them — worth a dedicated look if the chart's history
+  ever feels too short in practice.
 
 ## Story / narrative
 
@@ -2737,7 +2765,33 @@ an invalid code format 400'd, an unused code 404'd, and the 60-second
 KV expiry was confirmed by actually waiting past it and re-checking.
 Pushed to `main` only after all of that passed.
 
-## Faultline's sweep locks out other abilities, raised 2026-09-10
+## ~~Faultline's sweep locks out other abilities~~, raised 2026-09-10, shipped 2026-09-13 (0.36.0)
+
+**Shipped 2026-09-13 (0.36.0).** Of the three plausible directions
+below, the "resolve everything up front, animate the stagger" option
+turned out unworkable: `updateHpBars()` redraws every monster's hp bar
+live from `mc.hp` on every call (including from `playerAttack`), so an
+Attack landing mid-sweep would have instantly revealed every remaining
+sweep target's already-applied damage, defeating the staggered-reveal
+visual a locked-down test relies on. Went with the "narrow the guard"
+option instead, verified safe with the advisor: `abilityActionInFlight`
+now releases right after Faultline's synchronous prelude (GCD, streak
+reset, swing animation) and before the stagger loop starts — every
+combatant-state mutation it protects is already done by then, so
+there's nothing left for a concurrent Attack/Flee/other ability to
+corrupt. A second Faultline press during its own stagger window is
+still guarded, now by a dedicated `aoeSweepInFlight` flag rather than
+the generic one (a generic per-ability-cooldown check was tried first
+and broke three existing widen-buff tests that rely on today's
+UI-layer-only cooldown enforcement). See CHANGELOG.md's 0.36.0 entry.
+
+**Left deliberately deferred**: the `extraTargetIndices` stagger loop
+(Sever's extra target, or any ability widened by Faultline's buff) has
+the identical lockout bug at a smaller scale. Fixing it would touch
+those abilities' own timing — out of scope for this pass, revisit if it
+gets reported.
+
+---
 
 Raised: "while faultine is going from enemy to enemey you shoudl still
 be able to use other ablities, seems like it pasues you being able to do
@@ -2780,7 +2834,22 @@ The shared ability GCD (`abilityGcdMsForSpeed`) already exists as the
 intended pacing limiter, which is an argument that this lockout is
 incidental rather than a designed cost.
 
-## Delete the DOM map renderer scaffolding, raised 2026-09-10
+## ~~Delete the DOM map renderer scaffolding~~, raised 2026-09-10, shipped 2026-09-13 (0.36.0)
+
+**Shipped 2026-09-13 (0.36.0)**, exactly as scoped below: the file,
+the `renderer` prop/resolution in `mapScreen.js`, and the dead CSS all
+removed; `mapScreen.js`'s renderer *interface* itself was kept (per
+this section's own closing note) rather than collapsed, now calling
+the canvas renderer directly instead of branching. `tests/
+mapScreenDom.test.js`'s pure-rendering assertions were removed and its
+behavior tests re-pointed at canvas, exactly as planned; `tests/
+celebrationEffect.test.js` needed a small rewrite too (jsdom has no
+canvas 2D context, so it can never hand back a real player-anchor
+rect under test — a new `__setPlayerScreenRectForTest` seam in
+`mapScreen.js` replaced querying a `.map-tile-player` element that no
+longer exists). See CHANGELOG.md's 0.36.0 entry.
+
+---
 
 The canvas map renderer (0.29.0) deliberately kept the old DOM/CSS-Grid
 renderer alive rather than deleting it, so the two could be A/B'd live
@@ -2917,19 +2986,18 @@ Three related threads out of the final whole-branch code review of
 none of them blockers for that branch but all worth a real look before
 the next superboss pass:
 
-- **The balance simulator's `--cycle-sweep` mode still doesn't model
-  sustained buff-tonic uptime or a potion budget above 6.**
-  `scripts/simulate-balance.js`'s sweep builds are all constructed with
-  a flat `potions: 6`, so no row can ever report more than 6 potions
-  used - the design spec's own explicit "up to ~20 potions is fine"
-  allowance (see the design goal section) is currently untestable with
-  this tool at all. This is the leading suspect for why the tool can't
-  reproduce `superBossOne`'s real NG+2 100%-HP win: a full
-  `--cycle-sweep superBossOne` run reads ~0% win at its own
-  cycle-ceiling gear at every NG+ cycle (0.30% at NG+0, 0.00% at NG+1
-  through NG+4, including a literal 0.00% at NG+2 - the exact fight
-  the real save won at full HP). See the design spec's "Validation
-  results (implementation)" section for the full writeup.
+- ~~**The balance simulator's `--cycle-sweep` mode still doesn't model
+  sustained buff-tonic uptime or a potion budget above 6.**~~ —
+  **shipped 2026-09-13 (0.36.0)**: `CYCLE_SWEEP_POTION_BUDGET` (20,
+  matching the design spec's own "up to ~20 potions is fine" allowance)
+  replaced the flat `potions: 6` in both cycle-sweep builds. Confirmed
+  real signal, not just a bigger number: `superBossOne`'s NG+0 ceiling
+  build went 0%→100% win, NG+1 went 0%→83%. NG+2 is still 0% even with
+  the fix - the real save's known NG+2 win isn't fully reproduced yet,
+  so something else (the separately-tracked `stun`-modeling gap noted
+  elsewhere in this file is one live suspect) is still in play; this
+  thread only ever claimed the potion cap was "the leading suspect,"
+  not the whole story. See CHANGELOG.md's 0.36.0 entry.
 - **The sweep only ever implemented the two endpoints, not the
   midpoints the design spec asked for.** The spec's Phase 0b section
   explicitly asked for "one or two midpoints" between the cycle-start

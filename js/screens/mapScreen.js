@@ -22,7 +22,6 @@ import {
   TRAIL_DIRECTIONS, TRAIL_OPPOSITE_DIR,
 } from '../systems/mapRenderModel.js';
 import { buildDrawList } from '../systems/mapDrawList.js';
-import * as domRenderer from './mapDomRenderer.js';
 import * as canvasRenderer from './mapCanvasRenderer.js';
 
 // Raised 2026-08-29: random encounters had no memory of the last one, so
@@ -80,15 +79,10 @@ let callbacks = null;
 // debugCharacters.js) - skips only the random encounter roll below, not
 // deterministic tile-triggered fights (guardians, bosses).
 let debugNoEncounters = false;
-// Which renderer is actually drawing the map - see resolveRenderer() below.
-// Both expose the same small interface (renderFull/renderStep/destroy/
-// getPlayerScreenRect and the three effect triggers), so nothing else in
-// this file needs to know which one it's talking to.
-let renderer = canvasRenderer;
-// The .map-viewport element the active renderer draws into. This module owns
-// it (rather than either renderer) because computeViewportGeometry() has to
-// measure its real pixel size to decide how many tiles fit, which is a
-// renderer-independent question.
+// The .map-viewport element the canvas renderer draws into. This module owns
+// it (rather than the renderer) because computeViewportGeometry() has to
+// measure its real pixel size to decide how many tiles fit, which the
+// renderer doesn't need to know about.
 let viewportEl = null;
 // The (tilesWide, tilesTall) the active renderer was last built for. Set by
 // renderFull() (the only place that actually measures the viewport's real
@@ -102,35 +96,15 @@ let viewportEl = null;
 let lastTilesWide = 0;
 let lastTilesTall = 0;
 // Raised 2026-09-09 (see BACKLOG.md's "Map render performance" section):
-// the DOM renderer's grid-column/grid-row are anchored to the current
-// screen-cluster's own bounds (clusterBounds' minGx/minGy), not to the
-// panning viewport origin - so a cell's placement is a pure function of its
-// world coordinate and never changes just because the camera moved. That
-// anchor is only valid within one cluster, so lastClusterId tracks which
-// cluster the current render is anchored to and renderStep() falls back to
-// renderFull() on any cluster change instead of trying to reconcile a cache
-// against a moved anchor. The canvas renderer has no such anchor (it draws
-// from world coordinates directly every frame) but shares the fallback,
-// since a cluster change also changes the world extent it should clamp to.
+// a cluster change (crossing into a screen that isn't part of the current
+// cluster) needs a fresh anchor rather than a reconciliation of the old one,
+// since it also changes the world extent the renderer should clamp to - so
+// lastClusterId tracks which cluster the current render is anchored to and
+// renderStep() falls back to renderFull() whenever it changes.
 let lastClusterId = null;
 
-// TEMPORARY, alongside js/screens/mapDomRenderer.js: `?renderer=dom` puts the
-// old DOM/CSS-Grid renderer back so the two can be compared live on the same
-// save in one build (the previous perf session had to `git stash`/pop to A/B,
-// which can't be done to an already-running page). Canvas is the default -
-// the whole point of the rewrite - and anything other than the exact string
-// 'dom' falls through to it, so a typo'd param can't silently ship the slow
-// path. props.renderer wins over the URL so tests can pick one explicitly
-// without touching a global. Remove this, the flag, and mapDomRenderer.js
-// together once canvas is confirmed better.
-function resolveRenderer(preferred) {
-  const choice = preferred ?? readRendererParam();
-  return choice === 'dom' ? domRenderer : canvasRenderer;
-}
-
 // Whether the canvas renderer may use its cached static layer. Props win over
-// the URL so a test can pick one without touching a global, exactly as
-// `renderer` does above.
+// the URL so a test can pick one without touching a global.
 function resolveStaticCacheEnabled(preferred) {
   if (typeof preferred === 'boolean') return preferred;
   if (typeof location === 'undefined' || !location.search) return true;
@@ -141,22 +115,11 @@ function resolveStaticCacheEnabled(preferred) {
   }
 }
 
-function readRendererParam() {
-  if (typeof location === 'undefined' || !location.search) return null;
-  try {
-    return new URLSearchParams(location.search).get('renderer');
-  } catch {
-    return null;
-  }
-}
-
 // How long the camera takes to slide to a new position, in ms. 0 reproduces
-// the old DOM renderer's behavior exactly (the camera jumps a whole tile the
-// instant a step lands), which is why it's an available value rather than
-// just a small number - see the Settings slider in
-// js/screens/settingsScreen.js. Only the canvas renderer reads this; the DOM
-// renderer has no way to honor it (its camera is a discrete grid transform).
-// The default itself lives in js/state.js alongside the save field it backs,
+// the pre-canvas feel exactly (the camera jumps a whole tile the instant a
+// step lands), which is why it's an available value rather than just a small
+// number - see the Settings slider in js/screens/settingsScreen.js. The
+// default itself lives in js/state.js alongside the save field it backs,
 // rather than being restated here where the two could drift apart.
 function resolveCameraSmoothingMs() {
   const raw = state?.settings?.cameraSmoothingMs;
@@ -198,8 +161,7 @@ const WALK_REPEAT_INTERVAL_MS = 110;
 // and stop", and at the real 110ms a handful of those cost seconds of real
 // waiting each. Node runs test files in parallel, so that much wall-clock time
 // spent asleep is enough to starve other timing-sensitive suites - this was
-// caught making an unrelated battle test flake. Same reasoning as the
-// `renderer` prop.
+// caught making an unrelated battle test flake.
 let walkRepeatMs = WALK_REPEAT_INTERVAL_MS;
 // Whether the canvas renderer may use its cached static layer - see
 // resolveStaticCacheEnabled.
@@ -486,11 +448,11 @@ function signatureAt(gx, gy) {
   return resolved ? computeCellSignature(resolved.screenId, resolved.localX, resolved.localY) : EMPTY_SIGNATURE;
 }
 
-// Everything the active renderer needs to draw a frame, gathered in one
-// place so neither renderer reaches into this module's own globals. Built
-// fresh per render rather than cached: every field is a cheap property read
-// or a bound function, and a stale copy here would be a silent
-// wrong-frame bug of exactly the kind the signature diffing exists to avoid.
+// Everything the canvas renderer needs to draw a frame, gathered in one
+// place so it never reaches into this module's own globals. Built fresh per
+// render rather than cached: every field is a cheap property read or a bound
+// function, and a stale copy here would be a silent wrong-frame bug of
+// exactly the kind the signature diffing exists to avoid.
 function buildRenderContext(geometry) {
   return {
     ...geometry,
@@ -521,7 +483,7 @@ function renderFull() {
   viewportEl = viewport;
 
   const geometry = computeViewportGeometry(viewport);
-  renderer.renderFull(viewport, buildRenderContext(geometry));
+  canvasRenderer.renderFull(viewport, buildRenderContext(geometry));
 
   lastTilesWide = geometry.tilesWide;
   lastTilesTall = geometry.tilesTall;
@@ -535,11 +497,8 @@ function renderStep() {
     renderFull();
     return;
   }
-  // The DOM renderer's cluster-anchored placement is only valid within the
-  // cluster it was built for - a cluster change (crossing into a screen that
-  // isn't part of the current cluster) needs a fresh anchor, not a
-  // reconciliation of the old one, so fall back to a full rebuild rather
-  // than trying to reason about a cache against a moved anchor.
+  // A cluster change (crossing into a screen that isn't part of the current
+  // cluster) needs a fresh anchor - see lastClusterId's own comment above.
   if (worldGrid.clusterIdOfScreen[mapConfig.id] !== lastClusterId) {
     renderFull();
     return;
@@ -547,7 +506,7 @@ function renderStep() {
   const context = buildRenderContext(computeStepGeometry());
   context.changedTiles = pendingChangedTiles;
   pendingChangedTiles = null;
-  if (!renderer.renderStep(context)) {
+  if (!canvasRenderer.renderStep(context)) {
     renderFull();
   }
 }
@@ -932,7 +891,7 @@ export function mount(root, props) {
   callbacks = props.callbacks;
   debugNoEncounters = Boolean(props.debugNoEncounters);
   portalTransitionPending = false;
-  renderer = resolveRenderer(props.renderer);
+  testPlayerScreenRectOverride = null;
   walkRepeatMs = Number.isFinite(props.walkRepeatMs) ? props.walkRepeatMs : WALK_REPEAT_INTERVAL_MS;
   staticCacheEnabled = resolveStaticCacheEnabled(props.staticCache);
   releaseAllMoveKeys();
@@ -953,10 +912,8 @@ export function unmount() {
   releaseAllMoveKeys();
   // The canvas renderer holds a requestAnimationFrame loop and its own
   // listeners (hover, devicePixelRatio) - without this they'd outlive the
-  // screen and keep drawing into a detached canvas forever. The DOM renderer
-  // has nothing running, but implements destroy() too so this call doesn't
-  // have to care which renderer is active.
-  renderer.destroy();
+  // screen and keep drawing into a detached canvas forever.
+  canvasRenderer.destroy();
   viewportEl = null;
   lastTilesWide = 0;
   lastTilesTall = 0;
@@ -983,19 +940,16 @@ export function resume() {
   // else notices one made while a dialog sat on top of this screen. Every
   // other lifecycle path (mount, a step) already re-checks it; resuming from
   // pause was the one gap, since it otherwise only restores input.
-  renderer.refreshViewport();
+  canvasRenderer.refreshViewport();
 }
 
 // Test-only seam. jsdom has no canvas implementation at all
 // (getContext('2d') returns null there), so the canvas renderer draws
-// nothing under test and there are no elements to assert against the way
-// tests/mapScreenDom.test.js does for the DOM renderer. Exposing the draw
-// list instead means the rendering decisions - which glyph, what size, what
-// paint order, what the trail's geometry works out to - are all assertable
-// as plain data against a real map and real game state, which is strictly
-// more than the DOM tests could check (they could see a font-size string,
-// not the ordering rules). See tests/mapDrawList.test.js and
-// tests/mapTrail.test.js.
+// nothing under test and there are no elements to assert against. Exposing
+// the draw list instead means the rendering decisions - which glyph, what
+// size, what paint order, what the trail's geometry works out to - are all
+// assertable as plain data against a real map and real game state. See
+// tests/mapDrawList.test.js and tests/mapTrail.test.js.
 //
 // Returns the plain viewport list, without the extra margin ring
 // mapCanvasRenderer.js adds for its own smooth-camera and overhang needs.
@@ -1011,13 +965,24 @@ export function __getRenderContextForTest() {
   return buildRenderContext(computeViewportGeometry(viewportEl));
 }
 
+// Test-only override for getPlayerScreenRect() below. jsdom ships no canvas
+// 2d context at all, so the canvas renderer never has a real rect to give
+// under test (see __getDrawListForTest's own comment) - this lets a test
+// simulate one directly instead, without needing a real mount. Cleared on
+// every mount() so a rect set by one test can't leak into a later one that
+// does mount a real map.
+let testPlayerScreenRectOverride = null;
+export function __setPlayerScreenRectForTest(rect) {
+  testPlayerScreenRectOverride = rect;
+}
+
 // The hero's on-screen rectangle, for effects that anchor to the player's
-// tile from outside this module (js/screens/celebrationEffect.js). Both
-// renderers answer this - the DOM one from a real element, the canvas one
-// from the camera - which is what lets celebrationEffect.js stop reaching in
-// with a '.map-tile-player' querySelector that only one of them produces.
+// tile from outside this module (js/screens/celebrationEffect.js), which is
+// what lets that module stop reaching in with a '.map-tile-player'
+// querySelector of its own.
 export function getPlayerScreenRect() {
-  return renderer.getPlayerScreenRect();
+  if (testPlayerScreenRectOverride) return testPlayerScreenRectOverride;
+  return canvasRenderer.getPlayerScreenRect();
 }
 
 // Not exported - only ever called from tryMove itself, right where the
@@ -1025,7 +990,7 @@ export function getPlayerScreenRect() {
 // unlike the other effect helpers below which react to a main.js-side state
 // change this screen doesn't know about on its own.
 function playPortalPullEffect() {
-  renderer.playPortalPullEffect(PORTAL_PULL_EFFECT_MS);
+  canvasRenderer.playPortalPullEffect(PORTAL_PULL_EFFECT_MS);
 }
 
 const LEVEL_UP_EFFECT_DURATION_MS = 1200;
@@ -1036,7 +1001,7 @@ const LEVEL_UP_EFFECT_DURATION_MS = 1200;
 // address directly rather than needing a fresh render.
 export function playLevelUpEffect() {
   playSfx('levelUp');
-  renderer.playLevelUpEffect(LEVEL_UP_EFFECT_DURATION_MS);
+  canvasRenderer.playLevelUpEffect(LEVEL_UP_EFFECT_DURATION_MS);
 }
 
 const WELL_HEAL_EFFECT_DURATION_MS = 1100;
@@ -1047,7 +1012,7 @@ const WELL_HEAL_EFFECT_DURATION_MS = 1100;
 // the player is already at full HP ("if at full health than no circle"), so
 // this only ever needs to handle the "actually healed" case.
 export function playWellHealEffect() {
-  renderer.playWellHealEffect(WELL_HEAL_EFFECT_DURATION_MS);
+  canvasRenderer.playWellHealEffect(WELL_HEAL_EFFECT_DURATION_MS);
 }
 
 // Reworked 2026-09-10: "slow down the animation when they enemies fly away
@@ -1072,15 +1037,15 @@ const MONSTER_FLEE_STAGGER_MS = 120;
 // appear and immediately bail, rather than nothing happening at all. Called
 // once per monster in the encounter, with its index for the stagger.
 //
-// Deliberately stays a document.body element under both renderers rather
-// than becoming a canvas draw: it flies MONSTER_FLEE_DISTANCE_PX in a random
-// direction and is meant to escape the map viewport entirely (over the HUD,
-// past the edge of the world), which anything drawn into the canvas would be
-// clipped to. It has no relationship to the tile grid beyond its start point.
-// That argument only got stronger when the flight grew to 220px and 2.6x
-// scale - it now leaves the viewport by a wide margin.
+// Deliberately stays a document.body element rather than becoming a canvas
+// draw: it flies MONSTER_FLEE_DISTANCE_PX in a random direction and is meant
+// to escape the map viewport entirely (over the HUD, past the edge of the
+// world), which anything drawn into the canvas would be clipped to. It has
+// no relationship to the tile grid beyond its start point. That argument
+// only got stronger when the flight grew to 220px and 2.6x scale - it now
+// leaves the viewport by a wide margin.
 export function playMonsterFleeEffect(emoji, index = 0) {
-  const rect = renderer.getPlayerScreenRect();
+  const rect = getPlayerScreenRect();
   if (!rect) return;
   const el = document.createElement('div');
   el.textContent = emoji;

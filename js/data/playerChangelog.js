@@ -5,6 +5,16 @@
 // or care about while playing. Keep it in sync manually: add a new entry
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
+  {
+    version: '0.36.0',
+    date: '2026-09-13',
+    highlights: [
+      "New: ring and charm slots now keep growing with New Game Plus - two more ring slots and one more charm slot every cycle, no limit. Fair warning: this is deliberately unbalanced.",
+      "New: a \"DPS Chart\" button in Settings shows how your damage-per-second on regular fights vs. bosses has trended over time, so you can actually see yourself getting stronger through NG+.",
+      "Fixed: Faultline no longer locks you out of Attack, Flee, or other abilities while its sweep is still playing out.",
+      "Fixed: the terrain painter (map editor) now allows a dungeon to have more than one exit - no gameplay change for you, just makes new dungeons easier to build.",
+    ],
+  },
   // Internal-only, same reason 0.34.7/0.34.8 and 0.35.0-0.35.1 got entries
   // (see this file's header): both changes this version are terrain-
   // painter (map-editor) tooling used only during development - an

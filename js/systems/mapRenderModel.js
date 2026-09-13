@@ -1,16 +1,14 @@
-// Everything both map renderers need to agree on: how big a thing draws,
-// which tiles are obstacles vs. landmarks vs. decorated ground, and the
-// trail's own direction bookkeeping. Pure data and pure functions - no DOM,
-// no canvas, no module-level game state - so js/systems/mapDrawList.js can
-// be unit tested without a browser and js/screens/mapDomRenderer.js can keep
-// behaving exactly as it did when all of this lived inside mapScreen.js.
+// Everything the map renderer needs to agree with the rest of the game on:
+// how big a thing draws, which tiles are obstacles vs. landmarks vs.
+// decorated ground, and the trail's own direction bookkeeping. Pure data and
+// pure functions - no DOM, no canvas, no module-level game state - so
+// js/systems/mapDrawList.js can be unit tested without a browser.
 //
 // Split out 2026-09-09 as the first step of the canvas map renderer (see
-// docs/superpowers/BACKLOG.md's "Map render performance" sections): the DOM
-// and canvas renderers necessarily draw the same world with the same rules,
-// and two copies of these sets would drift the moment a new tile kind landed
-// in one and not the other. Every comment below is preserved verbatim from
-// mapScreen.js, since each one records a specific bug or request.
+// docs/superpowers/BACKLOG.md's "Map render performance" sections), back when
+// this same data also had to agree with the since-removed DOM renderer.
+// Every comment below is preserved verbatim from mapScreen.js, since each one
+// records a specific bug or request.
 import { TILES } from '../tiles.js';
 
 export const CACHE_MARKER_EMOJI = '💰';
@@ -179,10 +177,10 @@ export const STUMP_AND_RUBBLE = new Set([TILES.stump, TILES.rubble]);
 
 // Every trail fragment uses this fixed 0..100 coordinate space (independent
 // of the tile's actual rendered pixel size) - trail.js's wear/geometry
-// functions already return numbers on roughly this scale. The DOM renderer
-// stretches it to the tile via an SVG viewBox; the canvas renderer scales
-// its own transform by TILE_SIZE_PX / TRAIL_VIEWBOX_SIZE and then uses every
-// one of trail.js's numbers verbatim, so neither has to convert units.
+// functions already return numbers on roughly this scale. The canvas
+// renderer scales its own transform by TILE_SIZE_PX / TRAIL_VIEWBOX_SIZE and
+// then uses every one of trail.js's numbers verbatim, so it never has to
+// convert units.
 export const TRAIL_VIEWBOX_SIZE = 100;
 export const TRAIL_DIRECTIONS = [['n', 0, -1], ['s', 0, 1], ['w', -1, 0], ['e', 1, 0]];
 export const TRAIL_DIR_DELTA = Object.fromEntries(TRAIL_DIRECTIONS.map(([dir, dx, dy]) => [dir, [dx, dy]]));
@@ -197,18 +195,15 @@ export const DECORATION_MAX_SCALE = 1.05;
 export const DECORATION_POSITION_MIN_PCT = 28;
 export const DECORATION_POSITION_MAX_PCT = 72;
 // The canvas renderer has no `rem` to resolve against, so it needs the
-// decoration's base size in real pixels. The DOM renderer keeps emitting
-// rem (unchanged behavior); this constant is what the two agree on, and it
-// assumes the document's default 16px root font size the way every other
-// rem in css/styles.css already does.
+// decoration's base size in real pixels - this constant assumes the
+// document's default 16px root font size the way every other rem in
+// css/styles.css already does.
 export const DECORATION_BASE_PX = DECORATION_BASE_REM * 16;
 
-// The ground each tile paints underneath everything else. The DOM renderer
-// expresses this as a CSS class (.map-tile-grass / .map-tile-water / the
-// bare .map-tile default); canvas needs the literal color. Kept in sync with
-// css/styles.css by hand - and with trail.js's own
-// TRAIL_GROUND_COLOR_BY_TILE, which encodes the same three colors for the
-// trail's blend-toward-the-ground math.
+// The ground each tile paints underneath everything else. Canvas needs the
+// literal color rather than a CSS class - kept in sync with css/styles.css
+// by hand, and with trail.js's own TRAIL_GROUND_COLOR_BY_TILE, which encodes
+// the same three colors for the trail's blend-toward-the-ground math.
 export const GROUND_COLOR_DEFAULT = '#333333';
 export const GROUND_COLOR_GRASS = '#3f6b34';
 export const GROUND_COLOR_WATER = '#2b6cb0';

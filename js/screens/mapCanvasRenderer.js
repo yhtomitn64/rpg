@@ -1047,7 +1047,7 @@ function handlePointerLeave() {
 }
 
 // ---------------------------------------------------------------------------
-// Renderer interface (mirrors js/screens/mapDomRenderer.js)
+// Renderer interface (what js/screens/mapScreen.js calls directly)
 // ---------------------------------------------------------------------------
 
 export function renderFull(viewport, context) {

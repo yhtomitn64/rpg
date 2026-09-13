@@ -638,6 +638,10 @@ function runMatchup(build, monsterStats, trials, parryLandRate, specialParryLand
 // once more real telemetry exists for the new bosses this tool is meant to
 // validate.
 const CYCLE_SWEEP_LEVELS = { start: [8, 12, 15, 17, 19], ceiling: [10, 15, 18, 20, 22] };
+// Matches the design spec's own "up to ~20 potions is fine" allowance for a
+// real, fully-prepared attempt - was a flat 6 (see this function's own
+// comment below for why that made every ceiling-build row untestable).
+const CYCLE_SWEEP_POTION_BUDGET = 20;
 
 function runCycleSweep(bossId, trials, parryRate, specialParryRate) {
   const baseMonster = MONSTERS[bossId];
@@ -653,13 +657,21 @@ function runCycleSweep(bossId, trials, parryRate, specialParryRate) {
     const monsterStats = { ...baseMonster, ...getNgPlusCombatOverrides(baseMonster, cycle) };
     console.log(`\n-- NG+${cycle} (hp ${monsterStats.hp}, atk ${monsterStats.attack}, def ${monsterStats.defense}) --`);
 
+    // CYCLE_SWEEP_POTION_BUDGET (not a flat 6) - the design spec's own
+    // "up to ~20 potions is fine" allowance (raised in the superboss-
+    // expansion final review, 2026-09-13) was untestable with a hardcoded
+    // 6-potion cap: every ceiling-build row here used to report exactly
+    // 6.0 potions burned (the cap itself, not a real stopping point) and
+    // ~0% win at every cycle, even superBossOne's own NG+2, which a real
+    // save actually won at full HP. See that backlog entry for the full
+    // writeup.
     const startBuild = makeBuild({
       name: `cycle-start (L${CYCLE_SWEEP_LEVELS.start[cycle]})`,
       level: CYCLE_SWEEP_LEVELS.start[cycle],
       equipment: { weapon: 'ironSword', head: 'ironHelm', body: 'ironArmor', legs: 'ironGreaves', accessory: 'powerRing' },
       equipmentTiers: { weapon: 'superior', head: 'superior', body: 'superior', legs: 'superior', accessory: 'superior' },
       upgrades: {},
-      potions: 6,
+      potions: CYCLE_SWEEP_POTION_BUDGET,
     });
     const ceilingTiers = { weapon: 'mythic', head: 'mythic', body: 'mythic', legs: 'mythic', accessory: 'mythic', ring1: 'mythic', ring2: 'mythic' };
     const ceilingBuild = makeBuild({
@@ -668,7 +680,7 @@ function runCycleSweep(bossId, trials, parryRate, specialParryRate) {
       equipment,
       equipmentTiers: ceilingTiers,
       upgrades: maxedUpgrades(equipment, ceilingTiers, cycle),
-      potions: 6,
+      potions: CYCLE_SWEEP_POTION_BUDGET,
     });
 
     for (const build of [startBuild, ceilingBuild]) {

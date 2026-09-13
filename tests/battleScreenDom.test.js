@@ -833,6 +833,46 @@ test('battleScreen DOM', async (t) => {
     }
   });
 
+  // Regression test for the reported bug: "while faultline is going from
+  // enemy to enemy you should still be able to use other abilities, seems
+  // like it pauses you being able to do other stuff." Before this fix,
+  // playerUseAbility (js/screens/battleScreen.js) held abilityActionInFlight
+  // for Faultline's *entire* staggered sweep (one SWEEP_STAGGER_MS per living
+  // enemy), and Attack/Flee/every other ability early-returned on that same
+  // flag - so a big enemy group locked the player out of everything else for
+  // over a second, worst exactly when Faultline was most worth casting.
+  await t.test('Attack still works while Faultline\'s staggered sweep is still mid-flight', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+    const { root } = await mountBattle(['boar', 'boar', 'boar'], { state: baseState({ player: { ...createNewGame().player, level: 8 } }) });
+    const hpText = (i) => root.querySelector(`#battle-monster-hp-text-${i}`).textContent;
+    const before = [hpText(0), hpText(1), hpText(2)];
+    click(root.querySelector('#btn-ability-sweep'));
+    // Only the first target has been hit so far - the sweep still has two
+    // more staggered hits pending (see the "hits each target in sequence"
+    // test above for the same one-step timing).
+    await advanceStagger(t, 260, 1);
+    assert.notEqual(hpText(0), before[0], 'sanity check: the first Faultline hit should have landed');
+    assert.equal(hpText(1), before[1], 'sanity check: the sweep should still be mid-flight, not finished');
+    // Attack (button) must not be blocked here - this is the guard the bug
+    // report is about.
+    click(root.querySelector('#btn-attack'));
+    assert.match(root.querySelector('#battle-log').textContent, /You hit/, 'Attack should have landed even while Faultline\'s sweep is still staggering');
+    // The sweep itself must still finish landing its remaining hits - the
+    // fix must not have aborted or skipped them.
+    await advanceStagger(t, 260, 2);
+    assert.notEqual(hpText(1), before[1], 'the second Faultline target should still get hit after Attack interrupts the stagger');
+    assert.notEqual(hpText(2), before[2], 'the third Faultline target should still get hit after Attack interrupts the stagger');
+  });
+
+  await t.test('Flee still works while Faultline\'s staggered sweep is still mid-flight', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+    const { root } = await mountBattle(['boar', 'boar', 'boar'], { state: baseState({ player: { ...createNewGame().player, level: 8 } }) });
+    click(root.querySelector('#btn-ability-sweep'));
+    await advanceStagger(t, 260, 1);
+    click(root.querySelector('#btn-flee'));
+    assert.match(root.querySelector('#battle-log').textContent, /You got away safely!/, 'Flee should work even while Faultline\'s sweep is still staggering');
+  });
+
   await t.test('a crit killing blow can play the split-death animation instead of the spin', async () => {
     const originalRandom = Math.random;
     // 0.01 satisfies both rollCrit()'s < 0.1 check and the split-death
@@ -1000,6 +1040,82 @@ test('battleScreen DOM', async (t) => {
     // so a single tick() covers both.
     t.mock.timers.tick(1900);
     assert.equal(battleEnds.length, 1, 'onBattleEnd should fire exactly once, not twice from the extra click');
+  });
+
+  // Covers the totalDamageDealt argument onBattleEnd now carries (see
+  // js/screens/battleScreen.js's endBattle()) - feeds js/main.js's
+  // battle_end telemetry event, which the DPS chart screen reads back.
+  // Exercises two of the several damage-application call sites this needed
+  // auditing across (a basic Attack, then a single-target ability), fixes
+  // Math.random so neither roll's variance/crit is a moving target, and
+  // cross-checks the reported total against the same numbers the battle log
+  // itself displayed for those two hits - not just "greater than zero".
+  await t.test('onBattleEnd reports total player damage summed across a basic attack and an ability hit', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+    const originalRandom = Math.random;
+    Math.random = () => 0.99; // deterministic non-crit rolls for both hits
+    try {
+      const state = baseState({ player: { ...createNewGame().player, level: 2 } }); // unlocks Impale ('stab')
+      const { root, battleEnds } = await mountBattle(['boar'], { state, monsterOverrides: [{ hp: 9999 }] });
+
+      click(root.querySelector('#btn-attack'));
+      const attackDamage = Number(root.querySelector('#battle-log').textContent.match(/for (\d+)\.$/)[1]);
+      assert.ok(attackDamage > 0, 'sanity check: the basic attack should have logged a real damage number');
+
+      click(root.querySelector('#btn-ability-stab'));
+      const logLines = [...root.querySelectorAll('#battle-log div')].map((div) => div.textContent);
+      const abilityDamage = Number(logLines[logLines.length - 1].match(/for (\d+)[.!]$/)[1]);
+      assert.ok(abilityDamage > 0, 'sanity check: the ability should have logged a real damage number');
+
+      // Monster is left alive (hp: 9999) - flee to end the battle without a
+      // third, unaccounted-for hit muddying the expected total.
+      click(root.querySelector('#btn-flee'));
+      t.mock.timers.tick(1300); // flee's own shorter exit-anim delay (see endBattle's battleEndHitAnimationMs)
+
+      assert.equal(battleEnds.length, 1);
+      const [outcome, , totalDamageDealt] = battleEnds[0];
+      assert.equal(outcome, 'fled');
+      assert.equal(totalDamageDealt, attackDamage + abilityDamage);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  // Regression coverage for a gap found in review: applyOnHitEffects()'s
+  // elemental-proc branch reduces target.hp directly (`target.hp =
+  // Math.max(0, target.hp - procDamage)`), a damage-application site that
+  // doesn't go through any of the resolve*() functions the other paths share
+  // - easy to miss by grepping for `monsterHp` alone, which is exactly how
+  // it was missed on the first pass here. Math.random forced low (0.01) so
+  // both the Attack's crit roll and the Ember Ring's own proc-chance roll
+  // are guaranteed to fire, making the expected total fully deterministic.
+  await t.test('onBattleEnd includes elemental proc damage from equipped gear (Ember Ring), not just the triggering swing', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+    const originalRandom = Math.random;
+    Math.random = () => 0.01; // guarantees both a crit and the Ember Ring's proc roll
+    try {
+      const state = baseState();
+      state.equipment.ring1 = 'emberRing'; // stats: { elementalProcChance: 20, elementalProcDamage: 6 } - see js/data/items.js
+      const { root, battleEnds } = await mountBattle(['boar'], { state, monsterOverrides: [{ hp: 9999 }] });
+
+      click(root.querySelector('#btn-attack'));
+      const logLines = [...root.querySelectorAll('#battle-log div')].map((div) => div.textContent);
+      const hitLine = logLines.find((line) => line.includes('You hit'));
+      const procLine = logLines.find((line) => line.includes('Bonus fire damage'));
+      assert.ok(procLine, 'expected the Ember Ring\'s proc to fire and log its own line');
+      const attackDamage = Number(hitLine.match(/for (\d+)[.!]$/)[1]);
+      const procDamage = Number(procLine.match(/: (\d+)!$/)[1]);
+      assert.equal(procDamage, 6, 'Ember Ring\'s elementalProcDamage is a flat 6, unaffected by the attack\'s own crit/streak roll');
+
+      click(root.querySelector('#btn-flee'));
+      t.mock.timers.tick(1300);
+
+      assert.equal(battleEnds.length, 1);
+      const [, , totalDamageDealt] = battleEnds[0];
+      assert.equal(totalDamageDealt, attackDamage + procDamage);
+    } finally {
+      Math.random = originalRandom;
+    }
   });
 
   await t.test('unmount removes the keydown listener - a keypress after unmount is inert', async () => {
