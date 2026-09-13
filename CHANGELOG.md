@@ -24,6 +24,35 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+### Fixed
+- **Fix wave from the final whole-branch review of `feature/superboss-expansion`.**
+  Ten findings addressed: (1) `js/data/playerChangelog.js`'s 0.35.0 entry claimed
+  four new superbosses were reachable in New Game+, which is false until they're
+  placed (`screenId`/`x`/`y` are still `null`) - reworded to match this file's own
+  "groundwork shipped, nothing to notice yet" convention (see 0.34.7/0.34.8).
+  (2) `tests/superBosses.test.js` now asserts a `SUPER_BOSSES` entry's
+  `screenId`/`x`/`y` are consistently all-null or all-non-null, never a mix.
+  (3) The design spec's "Validation results (implementation)" section now records
+  that the `superBossOne` control's *cycle-ceiling* row also reads ~0% win rate at
+  every NG+ cycle tested, not just its cycle-start row - contradicting the real
+  NG+2 100%-HP win this whole investigation started from, and flagging this pass's
+  three down-retunes (`superBossThree`/`Four`/`Five`) as low-confidence in the cut
+  direction. (4) `js/data/monsters.js`'s `superBossFive` comment clarified: it's
+  the hardest of this pass's four only at its own debut cycle - at any fixed NG+
+  cycle it's actually the weakest of all five superbosses, a consequence of its two
+  attack cuts. (5) `js/systems/inventory.js`'s stale comment describing the
+  now-fixed flat-upgrade-cap bug updated to reflect current reality. (6) Removed
+  the now-unused `MAX_UPGRADE_LEVEL` import from `scripts/simulate-balance.js`.
+  (7) `CHANGELOG.md`'s 0.34.7 entry's special-attack list was missing `stun`;
+  added. (8) `js/systems/superBossGates.js`'s `isSuperBossDebuted` now uses `?? 0`
+  instead of `|| 0` to state its actual intent (no behavior change, since the field
+  is never a negative number when present). (9) `scripts/simulate-balance.js`'s
+  `CYCLE_SWEEP_LEVELS` doc comment softened to admit it's a rough, rounded-down
+  extrapolation rather than a precise per-cycle fit. (10) Recorded three follow-up
+  threads (simulator potion/buff-tonic modeling gap, missing cycle-sweep
+  midpoints, `debutNgPlusCycle`'s open-floor gating) in
+  `docs/superpowers/BACKLOG.md` so they aren't lost.
+
 ## [0.35.0] - 2026-09-13
 
 ### Added
@@ -82,7 +111,7 @@ public API, no formal release process — commits land straight on
 
 ### Fixed
 - **`scripts/simulate-balance.js` now models telegraphed special attacks with a
-  separate, higher parry rate.** Superboss special attacks (slow/cooldownOverload)
+  separate, higher parry rate.** Superboss special attacks (stun/slow/cooldownOverload)
   are telegraphed with a distinct flavor line/icon so a real player can react to
   them, unlike routine hits. The simulator was rolling the exact same `parryLandRate`
   (default 0.3) for both, making every superboss look far harder in this file than

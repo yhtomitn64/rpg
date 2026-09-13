@@ -46,7 +46,7 @@ import { rollIncomingDamage, resolveParrySuccess, PARRY_COOLDOWN_MS } from '../j
 import { chooseAction } from './simulateAbilityPolicy.js';
 import { MONSTERS } from '../js/data/monsters.js';
 import { ITEMS } from '../js/data/items.js';
-import { getEquipmentBonuses, upgradeKey, MAX_UPGRADE_LEVEL, getMaxUpgradeLevel } from '../js/systems/inventory.js';
+import { getEquipmentBonuses, upgradeKey, getMaxUpgradeLevel } from '../js/systems/inventory.js';
 import { applyXp, xpForLevel } from '../js/systems/leveling.js';
 import { createNewGame } from '../js/state.js';
 import { getBossTierStats, MAX_BOSS_TIER } from '../js/systems/bossTiers.js';
@@ -630,10 +630,13 @@ function runMatchup(build, monsterStats, trials, parryLandRate, specialParryLand
 // NG+ cycle from 0 to 4: "cycle-start gear" (full iron/Superior-tier shop
 // gear, upgrade level 0, a level a few above the previous cycle's expected
 // finish) through "cycle-ceiling gear" (Mythic everywhere, upgraded to
-// getMaxUpgradeLevel(cycle)). First-pass level numbers below extrapolate
-// from Timothy's own save (entered NG+2 at level 17, beat superBossOne's
-// NG+2 fight comfortably at level 19-20) - refine once more real telemetry
-// exists for the new bosses this tool is meant to validate.
+// getMaxUpgradeLevel(cycle)). First-pass level numbers below are a rough,
+// rounded-down extrapolation from Timothy's own save (entered NG+2 at level
+// 17, beat superBossOne's NG+2 fight comfortably at level 19-20), spread
+// across all five cycles by feel rather than fit to any precise curve - e.g.
+// cycle 2's own entries below are 15/18, not a precise 17/19-20 - refine
+// once more real telemetry exists for the new bosses this tool is meant to
+// validate.
 const CYCLE_SWEEP_LEVELS = { start: [8, 12, 15, 17, 19], ceiling: [10, 15, 18, 20, 22] };
 
 function runCycleSweep(bossId, trials, parryRate, specialParryRate) {

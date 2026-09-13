@@ -81,6 +81,9 @@ test('every SUPER_BOSSES entry has the required shape', () => {
       assert.ok(entry.debutNgPlusCycle >= 0, `${id}'s debutNgPlusCycle must be non-negative`);
       assert.ok(Number.isInteger(entry.debutNgPlusCycle), `${id}'s debutNgPlusCycle must be an integer`);
     }
+    const nullPlacementFields = [entry.screenId, entry.x, entry.y].filter((v) => v === null).length;
+    assert.ok(nullPlacementFields === 0 || nullPlacementFields === 3,
+      `${id}'s screenId/x/y must be either all null (unplaced) or all non-null (placed), never a mix - got screenId=${entry.screenId} x=${entry.x} y=${entry.y}`);
   }
 });
 

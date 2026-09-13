@@ -574,6 +574,13 @@ same-day items below; these are the ones left open):**
     this, and the spec doc's "ring/charm question" section for the
     reasoning.
 
+**New threads raised 2026-09-13:**
+- **Superboss expansion follow-ups (simulator fidelity, cycle-sweep
+  coverage, debut-window gating), raised by final review.** Three
+  related threads out of the final whole-branch review of
+  `feature/superboss-expansion`; see the "Superboss expansion
+  follow-ups" section below.
+
 ## Story / narrative
 
 ### The game needs an actual story
@@ -2875,3 +2882,51 @@ Note one thing before attempting it: the current per-cell order means a
 tile's ground clips its neighbour's trail stroke where the round cap
 overhangs the tile edge, so a naive floor/object split visibly changes
 how trails end at unvisited tiles. Check that against a real save.
+
+## Superboss expansion follow-ups (simulator fidelity, cycle-sweep coverage, debut-window gating), raised by final review, 2026-09-13
+
+Three related threads out of the final whole-branch code review of
+`feature/superboss-expansion`
+(`docs/superpowers/plans/2026-09-13-superboss-expansion.md`,
+`docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`),
+none of them blockers for that branch but all worth a real look before
+the next superboss pass:
+
+- **The balance simulator's `--cycle-sweep` mode still doesn't model
+  sustained buff-tonic uptime or a potion budget above 6.**
+  `scripts/simulate-balance.js`'s sweep builds are all constructed with
+  a flat `potions: 6`, so no row can ever report more than 6 potions
+  used - the design spec's own explicit "up to ~20 potions is fine"
+  allowance (see the design goal section) is currently untestable with
+  this tool at all. This is the leading suspect for why the tool can't
+  reproduce `superBossOne`'s real NG+2 100%-HP win: a full
+  `--cycle-sweep superBossOne` run reads ~0% win at its own
+  cycle-ceiling gear at every NG+ cycle (0.30% at NG+0, 0.00% at NG+1
+  through NG+4, including a literal 0.00% at NG+2 - the exact fight
+  the real save won at full HP). See the design spec's "Validation
+  results (implementation)" section for the full writeup.
+- **The sweep only ever implemented the two endpoints, not the
+  midpoints the design spec asked for.** The spec's Phase 0b section
+  explicitly asked for "one or two midpoints" between the cycle-start
+  and cycle-ceiling gear tiers, to show a fuller difficulty curve
+  within a cycle rather than just its two ends. `runCycleSweep()` in
+  `scripts/simulate-balance.js` only ever grew the two endpoints. Worth
+  adding once the potion/buff-tonic modeling above is also addressed,
+  so a midpoint row is actually trustworthy.
+- **A superboss's `debutNgPlusCycle` is a floor with no ceiling - real
+  sweep data shows each new boss can go from a healthy win rate at its
+  own debut cycle to ~0% just one NG+ cycle later.** E.g.
+  `superBossTwo`'s own cycle-ceiling win rate: 74.30% at its NG+1
+  debut, 0.05% at NG+2 (see the design spec's Validation results
+  section for the full per-boss numbers). Since `isSuperBossDebuted`
+  (`js/systems/superBossGates.js`) only checks `ngPlusCycle >=
+  debutNgPlusCycle`, a player who doesn't fight a given superboss
+  during its "window" cycle may never be able to beat it once they've
+  moved past it - gear/level pacing outruns it in the other direction.
+  Not a regression (`superBossOne` already has this property at its
+  own NG+0-NG+1 boundary), but worth a real design discussion for
+  future superbosses/cycles: should there be a debut *window* (an
+  upper cycle bound, not just a lower one), a different gear-pacing
+  lever, or is an open floor actually fine because a player who out-
+  levels a superboss was never meant to fight it for challenge rather
+  than farming.

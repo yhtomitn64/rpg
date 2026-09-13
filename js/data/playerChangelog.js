@@ -15,7 +15,7 @@ export const PLAYER_CHANGELOG = [
     version: '0.35.0',
     date: '2026-09-13',
     highlights: [
-      "New: four brand-new superbosses now await in New Game+ - one more debuts each time you complete another cycle (through your fourth), so pushing deeper into New Game+ keeps turning up a fresh, brutal fight with a guaranteed rare drop for whoever can take it down.",
+      "Fixed: some behind-the-scenes groundwork for four upcoming superbosses - nothing to find in-game yet, since none of them have been placed in the world.",
     ],
   },
   // Internal-only, same reason 0.34.1-0.34.4 got entries (see this file's

@@ -5,7 +5,7 @@
 // off the beaten path), just something that shouldn't be reachable yet.
 // See docs/superpowers/specs/2026-09-13-superboss-expansion-design.md.
 export function isSuperBossDebuted(entry, ngPlusCycle) {
-  return ngPlusCycle >= (entry.debutNgPlusCycle || 0);
+  return ngPlusCycle >= (entry.debutNgPlusCycle ?? 0);
 }
 
 // One generic message, unlike toolGates.js's per-tool messages - there's no

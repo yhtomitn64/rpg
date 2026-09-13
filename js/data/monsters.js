@@ -396,7 +396,16 @@ export const MONSTERS = {
     ],
     attackStyle: 'melee',
   },
-  // Debuts at NG+4, the hardest of this pass's four. Retuned TWICE
+  // Debuts at NG+4, the hardest of this pass's four AT ITS OWN DEBUT
+  // CYCLE. At any single fixed NG+ cycle it's actually the WEAKEST of
+  // all five superbosses (One through Five) on both base hp (406, lowest)
+  // and base attack (48, lowest) - a direct consequence of the two attack
+  // cuts made during retuning below. It only reads as "hardest" because
+  // NG+'s exponential scaling (hp x2^cycle, atk/def x1.25^cycle) compounds
+  // more times before a player ever meets it than for the earlier-debuting
+  // bosses. A future author extending this roster shouldn't assume its raw
+  // stat numbers reflect difficulty in isolation from its debut-cycle
+  // context. Retuned TWICE
   // (Task 9) from the plan's first-pass candidate (hp 406/atk 82/def 16)
   // - see task-9-report.md for both full sweep passes:
   //   1st pass: its own NG+4 debut-cycle ceiling row started at a 0.30%

@@ -301,6 +301,29 @@ capped, but the tool as built cannot distinguish "used all it had" from
 "would have used more"; this doc's "up to ~20 potions is fine" ceiling
 is therefore not directly testable with this tool in its current form.
 
+**Calibration warning on the cycle-ceiling row.** The same `superBossOne`
+control's *cycle-ceiling* row is itself unreliable, not just its
+cycle-start row above. `task-9-report.md` recorded 0.30% win at its own
+NG+0 debut cycle; a follow-up full `--cycle-sweep superBossOne` run
+(all five cycles) read essentially the same low number everywhere else
+too — 0.00% at NG+1, NG+2, NG+3, and NG+4. That directly contradicts
+this project's own ground truth: the repo owner's real NG+2 character
+beat `superBossOne` at 100% HP remaining (this doc's Problem section)
+— the exact fight this tool's NG+2 cycle-ceiling row reports as a
+literal 0% win rate. That gap means the `--cycle-sweep` tool's
+`cycle-ceiling` build/level assumptions still under-model real player
+performance by a wide margin, on the one data point where it can be
+checked against reality at all. Two candidates are already known and
+unaccounted for: sustained buff-tonic uptime, and the flat `potions: 6`
+budget every sweep build uses (noted above) versus this doc's own "up
+to ~20 potions is fine" design goal — neither is modeled. Consequently,
+this pass's three retunes (`superBossThree`/`Four`/`Five`, each cut
+*down* based on this same tool reporting near-0% win rates at their own
+debut-cycle ceiling row) are low-confidence in the direction of the
+cut: expect them to need retuning **up**, not further down, once a real
+player actually fights them post-placement — treat them as a
+first-pass floor to react to, not validated final numbers.
+
 **superBossTwo** (debuts NG+1) — no retune. Own debut-cycle
 cycle-ceiling row: 74.30% win / 36.27% avg HP remaining on a win / 5.59
 of 6 potions used — a clear win with real, near-saturated resource
