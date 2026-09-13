@@ -74,6 +74,14 @@ export const ITEMS = {
     stats: { lifestealPercent: 25, critChancePercent: 12 } },
   stormringOfHaste: { id: 'stormringOfHaste', name: 'Stormring of Haste', emoji: '💍', slot: 'ring', price: 0,
     stats: { extraSwingChance: 18, elementalProcChance: 25, elementalProcDamage: 8 } },
+  // Placeholder name, like superBossOne's own MONSTERS entry - Timothy's to
+  // rename freely before this ships for real. Guaranteed drop for the
+  // cycle-4 superboss (superBossFive) - thorns punishes melee retaliation,
+  // debuffDurationPercent shortens the highest-cycle boss's slow/stun/
+  // cooldown-overload specials, both already-wired stat fields (STAT_KEYS in
+  // js/systems/inventory.js), zero new combat code needed.
+  guardiansLastStand: { id: 'guardiansLastStand', name: "Guardian's Last Stand [PLACEHOLDER NAME]", emoji: '🛡️', slot: 'accessory', price: 0,
+    stats: { thornsPercent: 30, debuffDurationPercent: 25 } },
 
   // Consumables
   potion: { id: 'potion', name: 'Potion', emoji: '🧪', type: 'consumable', price: 10, heal: 15 },

@@ -24,6 +24,10 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+### Added
+- **`guardiansLastStand` unique item added to the superboss loot pool.**
+  A new guaranteed drop for the cycle-4 superboss (superBossFive), combining `thornsPercent` (30) and `debuffDurationPercent` (25) — both existing stat fields already wired through equipment bonuses. Includes a placeholder name to be renamed before final release.
+
 ## [0.34.8] - 2026-09-13
 
 ### Added
