@@ -44,6 +44,22 @@
   #checkControls button { padding: 4px 8px; background: #222; color: #eee; border: 2px solid #444; cursor: pointer; font-family: monospace; }
   #checkStatus.ok { color: #6bbf6b; }
   #checkStatus.fail { color: #e06c6c; }
+  #dungeonCheckControls { margin-top: 8px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  #dungeonCheckControls button { padding: 4px 8px; background: #222; color: #eee; border: 2px solid #444; cursor: pointer; font-family: monospace; }
+  #dungeonCheckStatus.ok { color: #6bbf6b; }
+  #dungeonCheckStatus.fail { color: #e06c6c; }
+  #unsavedChangesStatus { color: #e0c039; }
+  #jumpToExportBtn { padding: 4px 8px; background: #222; color: #eee; border: 2px solid #444; cursor: pointer; font-family: monospace; }
+  @keyframes dirty-glow {
+    0%, 100% { box-shadow: 0 0 0 rgba(224,192,57,0); }
+    50% { box-shadow: 0 0 10px 2px rgba(224,192,57,0.9); }
+  }
+  button.dirty { border-color: #e0c039; animation: dirty-glow 1.6s ease-in-out infinite; }
+  @keyframes export-flash {
+    0%, 100% { background: #222; }
+    50% { background: #4a4222; }
+  }
+  .export-flash { animation: export-flash 0.6s ease-in-out 2; }
   canvas { border: 1px solid #444; cursor: crosshair; display: block; margin-top: 12px; touch-action: none; }
   canvas.placing-dungeon { cursor: cell; }
   .bulk-export-row { margin-top: 12px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
@@ -138,6 +154,8 @@
   <button id="undoBtn" title="Undo the last click/stroke on this map (Ctrl/Cmd+Z)">Undo</button>
   <span id="autosaveStatus"></span>
   <button id="resetFromFilesBtn" title="Discard autosaved changes and reload the real file from disk">Reset from files</button>
+  <span id="unsavedChangesStatus"></span>
+  <button id="jumpToExportBtn" title="Scroll down to the export controls">↓ Save</button>
 </div>
 <div id="dungeonControls" class="wilderness-only">
   <button id="placeDungeonBtn">Place Dungeon Entrance</button>
@@ -160,6 +178,10 @@
 <div id="checkControls" class="wilderness-only">
   <button id="checkMapBtn">Check Map</button>
   <span id="checkStatus"></span>
+</div>
+<div id="dungeonCheckControls" class="single-map-only">
+  <button id="checkDungeonMapBtn">Check Map</button>
+  <span id="dungeonCheckStatus"></span>
 </div>
 <canvas id="worldCanvas" width="1200" height="880"></canvas>
 <div class="bulk-export-row wilderness-only">

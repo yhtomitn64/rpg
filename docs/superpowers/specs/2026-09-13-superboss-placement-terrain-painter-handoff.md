@@ -24,17 +24,27 @@ placement work plus the fixes below. **Read PR #14's description before
 doing anything** — it has the full history phase by phase and is more
 detailed than this handoff needs to repeat.
 
-## The one known bug (Timothy's map content, not a code bug)
+## The one known bug (Timothy's map content, not a code bug) — worse than first reported
 
-`npm run test` is currently **1229/1230**. `superBossFive`'s dungeon
-(`js/maps/superBosses/superBossFive.js`) has a walkable tile at
-`(45, 0)`, right next to the guardian, that's disconnected from the
-path back to the entrance — caught by
-`tests/superBosses.test.js`'s `assertFullyReachable`. This needs
-Timothy to repaint that part of the map in the terrain painter, not a
-code fix. **The dungeon-interior "Check Map" feature below (item 2)
-would have caught this live in the editor instead of via `npm test`
-after the fact** — worth prioritizing partly for that reason.
+`npm run test` is currently **1229/1230** (`superBossFive` in
+`tests/superBosses.test.js`, `assertFullyReachable`). The original
+handoff text here described this as "a walkable tile at (45,0), right
+next to the guardian, disconnected from the path back to the
+entrance" - that undersold it. `assertFullyReachable` uses `assert.ok`
+*inside* its scan loop, so it throws and stops at the very first
+unreachable tile it finds in raster order (`(45,0)`) and never reports
+anything after that.
+
+Once item 2 below (dungeon-interior Check Map) was built and run
+against `superBossFiveMap` directly (outside the test framework, so
+nothing stops early), it reported **558 of the dungeon's 650 walkable
+tiles unreachable from the door** - and critically, **`(49,0)`, the
+`guardian` tile itself, is one of them**. This isn't a cosmetic stray
+tile next to the fight - as currently painted, `superBossFive`'s
+dungeon is unwinnable: the guardian can't be reached at all. Still
+Timothy's map content to fix, not a code bug, but he should know it's
+"this dungeon's connectivity is broken throughout," not "repaint one
+corner near the guardian."
 
 ## What to build next, in the order Timothy asked for
 

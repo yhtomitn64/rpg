@@ -144,8 +144,15 @@ every map, wilderness included.
   every tool. Also reports plainly whether the main dungeon entrance itself
   is reachable *without* a tool (it has to be — axe/pick/boat only ever
   drop from inside a dungeon, so the entrance can't require one to get to).
-  Dungeon-interior maps don't have their own reachability check yet — only
-  the wilderness does.
+  Dungeon-interior maps (any single map, not just wilderness) get their own
+  simpler **Check Map** button too — no tool-gating inside a dungeon
+  interior, so it's just one flood-fill from the door/entrance tile
+  (`exit`/`miniDungeonEntrance`, whichever the loaded map's palette uses),
+  and every walkable tile in the map must be reachable from it. Magenta
+  tiles mark anything walkable but unreachable - exactly the shape of bug
+  that shipped in `superBossFive`'s dungeon (a stray walkable tile next to
+  the guardian, disconnected from the path back to the door) before this
+  existed.
 - **Sealed world edge** — the outermost border of the full 5x5 world (any
   screen edge with no neighboring screen) always renders as the permanent
   mountain wall and can't be painted over, matching what the real game
@@ -188,7 +195,6 @@ in the painter (they're the in-game movement keys, not painter controls).
   doesn't cover the currently-open dragon-dungeon/mini-dungeon interior
   map — that still needs its own "Copy LEGEND/ROWS" + paste. (A brand-new
   dungeon *is* covered, via "Save New Dungeon to Server".)
-- No reachability check for dungeon-interior maps (wilderness only).
 - The dungeon entrance and tool dungeon entrance positions aren't wired to
   the Node server's endpoints (only wilderness screens and superboss
   markers are) — moving either still needs the Chrome/Edge "Choose Repo

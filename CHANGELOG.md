@@ -24,6 +24,37 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+### Added
+- **Terrain painter: order-independent tool-progression checking.** The
+  wilderness "Check Map"'s `checkProgression()`
+  (`tools/terrain-painter/reachability.js`) is now a fixed-point/
+  iterative-unlock algorithm instead of a fixed axe→pick→canoe→portal→dragon
+  staged check - any order that actually works is recognized as sound, and a
+  genuine deadlock (no order works) is reported by naming every stuck
+  dungeon, not just the first broken "stage."
+- **Terrain painter: dungeon-interior "Check Map."** A single flood-fill
+  from the door/entrance tile (`checkDungeonMap()` in
+  `tools/terrain-painter/painter.js`) confirms every walkable tile in a
+  loaded dungeon/mini-dungeon map is reachable - no tool-gating inside a
+  dungeon interior, so this is much simpler than the wilderness check.
+  Unreachable tiles are tinted magenta, same visual language as the
+  wilderness check's frontier tint.
+- **Terrain painter: unsaved-changes indicator + export prominence.** A
+  persistent "N unsaved changes" counter (`#unsavedChangesStatus`),
+  `#exportAllBtn` glows/pulses while dirty, and a "↓ Save" button
+  scroll-and-flashes the export controls into view.
+
+### Correction to the 0.35.2 entry below
+Running the new dungeon-interior Check Map above directly against
+`superBossFiveMap` found the known bug there is considerably worse than
+originally logged: **558 of 650 walkable tiles are unreachable from the
+door, including the `guardian` tile itself** - not just the one stray tile
+at (45,0) next to it. `npm test`'s `assertFullyReachable` only ever reported
+that one tile because it uses `assert.ok` inside its scan loop and throws
+at the first offender in raster order, masking everything after it. As
+currently painted, this dungeon is unwinnable, not just cosmetically messy.
+Still Timothy's map content to fix, not a code bug.
+
 ## [0.35.2] - 2026-09-13
 
 ### Added
