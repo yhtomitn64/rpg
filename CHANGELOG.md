@@ -45,6 +45,19 @@ public API, no formal release process — commits land straight on
   persistent "N unsaved changes" counter (`#unsavedChangesStatus`),
   `#exportAllBtn` glows/pulses while dirty, and a "↓ Save" button
   scroll-and-flashes the export controls into view.
+- **Terrain painter: existing superboss dungeons are now selectable in the
+  Map dropdown.** All five superboss dungeon files
+  (`js/maps/superBosses/*.js`) were missing from `SINGLE_MAPS` - only a
+  brand-new dungeon created via "New Dungeon" in that same browser session
+  ever got added there, and that's lost on reload. Without this, neither
+  the order-independent progression check nor the new dungeon-interior
+  Check Map above could actually be pointed at `superBossFive`'s known-
+  broken map at all. Registered from `SUPER_BOSSES`' own `dungeonMapId`
+  field (every existing file follows `dungeonMapId`'s name exactly - see
+  `js/maps/superBosses/superBossFive.js` etc.), *not* as `isNewDungeon` -
+  these files already exist, so saving them uses the same Copy-LEGEND/
+  ROWS-and-paste-by-hand path every other pre-existing single map already
+  uses, not "Save New Dungeon to Server."
 
 ### Not yet built (raised the same session, tracked for follow-up)
 - The wilderness "Check Map"'s own reveal animation - only the

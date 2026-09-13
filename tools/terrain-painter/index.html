@@ -56,8 +56,8 @@
   }
   button.dirty { border-color: #e0c039; animation: dirty-glow 1.6s ease-in-out infinite; }
   @keyframes export-flash {
-    0%, 100% { background: #222; }
-    50% { background: #4a4222; }
+    0%, 100% { box-shadow: 0 0 0 rgba(224,192,57,0); }
+    50% { box-shadow: 0 0 14px 4px rgba(224,192,57,0.9); }
   }
   .export-flash { animation: export-flash 0.6s ease-in-out 2; }
   canvas { border: 1px solid #444; cursor: crosshair; display: block; margin-top: 12px; touch-action: none; }

@@ -35,6 +35,26 @@ cosmetically messy near the guardian. Corrected in the section below and
 in CHANGELOG.md. Timothy still needs to repaint it himself; nothing to
 automate here.
 
+**A review pass caught one more real gap**: none of the five existing
+superboss dungeon files were in `painter.js`'s `SINGLE_MAPS`, so the Map
+dropdown couldn't actually load `superBossFive` (or any of the others) at
+all after a page reload - the feature built specifically to catch its bug
+couldn't be pointed at it. Fixed by registering all five from
+`SUPER_BOSSES`' own `dungeonMapId` field at init time (every existing file
+follows that name exactly - `js/maps/superBosses/${dungeonMapId}.js`
+exporting `${dungeonMapId}Map`), *not* as `isNewDungeon` since these files
+already exist. This is a fourth place (beyond the three the "New
+superboss dungeons need three things wired together" note below already
+lists) that needs a manual entry per new superboss dungeon file if this
+ever stops being data-driven for some future dungeon - worth remembering.
+
+Repainting `superBossFive` won't have a one-click save once it's fixed:
+these dungeon files aren't `isNewDungeon`, and bulk export doesn't cover
+dungeon interiors either (see Known gaps in `tools/terrain-painter/
+README.md`), so the loop is repaint → Check Map → **Copy LEGEND/ROWS →
+paste into the file by hand** - the same workflow every other existing
+dungeon (dragon/tool dungeons) already has, not a new limitation.
+
 **Not yet done, still open**: the wilderness "Check Map"'s own reveal
 animation (see above). Everything else from the original opening prompt
 below is complete. UI changes are logic- and syntax-checked but have not
@@ -230,7 +250,12 @@ work correctly at the game-engine level today.
   edit), and (3) `tests/superBosses.test.js`'s `SUPER_BOSS_DUNGEONS`
   map needs an import + entry added by hand for the new map to get
   structural/reachability test coverage at all — nothing currently
-  automates step 3.
+  automates step 3. (A fourth thing, making the file re-openable in the
+  painter's own Map dropdown after this session's changes, is now
+  automatic as long as `dungeonMapId` keeps matching its file/export name
+  exactly — `painter.js`'s `init()` derives `SINGLE_MAPS` entries for
+  every `hasDungeon` superboss straight from `SUPER_BOSSES` itself, no
+  manual step needed unless that naming convention ever breaks.)
 - **Git will warn about LF→CRLF on every `js/maps/wilderness/*.js` file**
   when staging, even ones with zero real content change — the Node
   server writes LF, git normalizes to CRLF on checkout. Harmless; check

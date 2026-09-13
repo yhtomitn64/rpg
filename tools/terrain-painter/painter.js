@@ -1006,6 +1006,32 @@ async function init() {
       superBossMarkers[superBossId] = { screenId: entry.screenId, x: entry.x, y: entry.y, hasDungeon: entry.hasDungeon };
     }
   }
+  // Every real superboss dungeon file so far (superBossOneDungeon.js through
+  // superBossFive.js) follows dungeonMapId's own naming exactly -
+  // `js/maps/superBosses/${dungeonMapId}.js` exporting `${dungeonMapId}Map` -
+  // and paints with the same caveFloor/caveWall/exit/guardian palette "New
+  // Dungeon" mode uses. Without this, none of these existing files were
+  // selectable in the Map dropdown at all (only a brand-new dungeon created
+  // via "New Dungeon" in that same browser session was, since that button's
+  // handler is the only other thing that ever adds to SINGLE_MAPS, and it's
+  // lost on reload) - so neither the order-independent progression check
+  // nor the new dungeon-interior Check Map could actually be pointed at
+  // superBossFive's known-broken map without this. Deliberately NOT
+  // isNewDungeon - these files already exist, so they use the same
+  // Copy-LEGEND/ROWS-and-paste-by-hand save path every other existing
+  // single map (dragon/tool dungeons, mini-dungeons) already uses, not
+  // "Save New Dungeon to Server."
+  for (const superBossId of SUPER_BOSS_IDS) {
+    const entry = superBossesMod.SUPER_BOSSES[superBossId];
+    if (!entry.hasDungeon || !entry.dungeonMapId || SINGLE_MAPS[entry.dungeonMapId]) continue;
+    SINGLE_MAPS[entry.dungeonMapId] = {
+      label: `${superBossId}'s dungeon (${entry.dungeonMapId})`,
+      modulePath: `../../js/maps/superBosses/${entry.dungeonMapId}.js`,
+      exportName: `${entry.dungeonMapId}Map`,
+      palette: NEW_DUNGEON_PALETTE,
+      defaultKind: 'caveFloor',
+    };
+  }
   updateUnsavedIndicator();
 
   const dungeonReadout = document.getElementById('dungeonReadout');
