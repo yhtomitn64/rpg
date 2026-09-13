@@ -32,17 +32,28 @@ public API, no formal release process — commits land straight on
   staged check - any order that actually works is recognized as sound, and a
   genuine deadlock (no order works) is reported by naming every stuck
   dungeon, not just the first broken "stage."
-- **Terrain painter: dungeon-interior "Check Map."** A single flood-fill
-  from the door/entrance tile (`checkDungeonMap()` in
+- **Terrain painter: dungeon-interior "Check Map," animated.** A single
+  flood-fill from the door/entrance tile (`checkDungeonMap()` in
   `tools/terrain-painter/painter.js`) confirms every walkable tile in a
   loaded dungeon/mini-dungeon map is reachable - no tool-gating inside a
-  dungeon interior, so this is much simpler than the wilderness check.
-  Unreachable tiles are tinted magenta, same visual language as the
-  wilderness check's frontier tint.
+  dungeon interior, so this is much simpler than the wilderness check. The
+  check animates outward from the door one BFS layer at a time (teal =
+  explored so far), with a persistent speed slider next to the button
+  controlling tiles-revealed-per-frame; unreachable tiles are then tinted
+  magenta, same visual language as the wilderness check's frontier tint.
 - **Terrain painter: unsaved-changes indicator + export prominence.** A
   persistent "N unsaved changes" counter (`#unsavedChangesStatus`),
   `#exportAllBtn` glows/pulses while dirty, and a "↓ Save" button
   scroll-and-flashes the export controls into view.
+
+### Not yet built (raised the same session, tracked for follow-up)
+- The wilderness "Check Map"'s own reveal animation - only the
+  dungeon-interior check above got one. The order-independent rewrite above
+  turned wilderness progression checking into a fixed-point loop (a full
+  re-flood per unlock pass), and animating that coherently is a design
+  question (how to show N successive floods against a growing passable
+  set), not just a rendering one the way the single-flood dungeon check
+  was - scoped out rather than rushed.
 
 ### Correction to the 0.35.2 entry below
 Running the new dungeon-interior Check Map above directly against

@@ -148,11 +148,15 @@ every map, wilderness included.
   simpler **Check Map** button too — no tool-gating inside a dungeon
   interior, so it's just one flood-fill from the door/entrance tile
   (`exit`/`miniDungeonEntrance`, whichever the loaded map's palette uses),
-  and every walkable tile in the map must be reachable from it. Magenta
-  tiles mark anything walkable but unreachable - exactly the shape of bug
-  that shipped in `superBossFive`'s dungeon (a stray walkable tile next to
-  the guardian, disconnected from the path back to the door) before this
-  existed.
+  and every walkable tile in the map must be reachable from it. The check
+  animates as it runs (teal tiles spreading outward from the door, one BFS
+  layer at a time) — the **Speed** slider next to the button controls how
+  many tiles it reveals per frame, from "watch it crawl" to "basically
+  instant." Once it finishes, magenta tiles mark anything walkable but
+  unreachable. This is the shape of bug that shipped in `superBossFive`'s
+  dungeon — not just a stray tile, as it turned out: running this check
+  against it found 558 of 650 walkable tiles unreachable from the door,
+  including the guardian tile itself.
 - **Sealed world edge** — the outermost border of the full 5x5 world (any
   screen edge with no neighboring screen) always renders as the permanent
   mountain wall and can't be painted over, matching what the real game

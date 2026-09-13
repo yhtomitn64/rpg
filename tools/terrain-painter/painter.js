@@ -160,7 +160,12 @@ let placingToolDungeon = null; // toolId currently being placed, or null
 let superBossMarkers = {}; // superBossId -> { screenId, x, y, hasDungeon } (wilderness only)
 let placingSuperBoss = null; // superBossId currently being placed, or null
 let checkOverlay = null; // { toollessReached, tooledReached, frontier: Set<string> } | null (wilderness only)
-let dungeonCheckOverlay = null; // { unreached: Set<string> } | null (single-map view only)
+// { phase: 'animating', revealed: Set<string> } while the reveal animation
+// below is still running, or { phase: 'done', unreached: Set<string> } once
+// it finishes and the real verdict is shown - null when nothing's been
+// checked yet (single-map view only).
+let dungeonCheckOverlay = null;
+let dungeonCheckAnimId = 0; // bumped to invalidate any in-flight reveal animation (stale click, map switch, or edit)
 let unsavedChangeCount = 0; // edits made since the last successful export/save (or since load, if restored from autosave)
 let undoStacks = {}; // mapKey -> array of { grid, dungeonMarker, toolDungeonMarkers, superBossMarkers } snapshots, oldest first
 const UNDO_LIMIT = 30;
@@ -412,7 +417,13 @@ function renderSingleMap(ctx) {
       ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
     }
   }
-  if (dungeonCheckOverlay) {
+  if (dungeonCheckOverlay && dungeonCheckOverlay.phase === 'animating') {
+    for (const key of dungeonCheckOverlay.revealed) {
+      const [x, y] = key.split(',').map(Number);
+      ctx.fillStyle = 'rgba(46,196,182,0.45)'; // exploring - same teal as miniDungeonEntrance, reads as "in progress"
+      ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    }
+  } else if (dungeonCheckOverlay && dungeonCheckOverlay.phase === 'done') {
     for (const key of dungeonCheckOverlay.unreached) {
       const [x, y] = key.split(',').map(Number);
       ctx.fillStyle = 'rgba(230,30,200,0.65)';
@@ -434,7 +445,7 @@ function paintAt(x, y) {
   if (active.isWilderness && isSealedWorldEdge(x, y)) return;
   active.grid[y][x] = activeBrush;
   if (active.isWilderness) checkOverlay = null; // stale as soon as the terrain changes
-  else dungeonCheckOverlay = null;
+  else { dungeonCheckOverlay = null; dungeonCheckAnimId++; }
 }
 
 function brushCells(cx, cy) {
@@ -884,9 +895,18 @@ function findDungeonStart(grid, w, h) {
   return starts;
 }
 
-function checkDungeonMap() {
+// The verdict (unreached, ok/fail) is decided synchronously below, same as
+// before Task 15's animation was added - only the on-screen reveal of
+// `reached` is animated, at a rate the speed slider controls (tiles
+// revealed per frame). `reached` is a Set, and Sets iterate in insertion
+// order in JS, which for floodFillReachable IS the BFS discovery order -
+// so replaying `[...reached]` is literally "replay the path being checked,"
+// no separate order-tracking needed.
+function checkDungeonMap(ctx) {
   const status = document.getElementById('dungeonCheckStatus');
   const { grid, w, h } = getActive();
+  dungeonCheckAnimId++;
+  const myAnimId = dungeonCheckAnimId;
 
   const starts = findDungeonStart(grid, w, h);
   if (starts.length !== 1) {
@@ -909,16 +929,36 @@ function checkDungeonMap() {
     }
   }
 
-  dungeonCheckOverlay = { unreached };
+  const order = [...reached];
+  const revealed = new Set();
+  let cursor = 0;
+  status.textContent = '🔎 Checking…';
+  status.className = '';
 
-  if (unreached.size > 0) {
-    status.textContent = `❌ ${unreached.size} walkable tile(s) are unreachable from the door - magenta tiles on the map mark exactly which ones.`;
-    status.className = 'fail';
-    return;
+  const speedSlider = document.getElementById('dungeonCheckSpeed');
+  function step() {
+    if (myAnimId !== dungeonCheckAnimId) return; // superseded by a later check, an edit, or a map switch
+    const tilesPerFrame = Math.max(1, Number(speedSlider.value) || 1);
+    const end = Math.min(order.length, cursor + tilesPerFrame);
+    for (; cursor < end; cursor++) revealed.add(order[cursor]);
+    dungeonCheckOverlay = { phase: 'animating', revealed };
+    render(ctx);
+    if (cursor < order.length) {
+      requestAnimationFrame(step);
+      return;
+    }
+
+    dungeonCheckOverlay = { phase: 'done', unreached };
+    if (unreached.size > 0) {
+      status.textContent = `❌ ${unreached.size} walkable tile(s) are unreachable from the door - magenta tiles on the map mark exactly which ones.`;
+      status.className = 'fail';
+    } else {
+      status.textContent = '✅ Every walkable tile is reachable from the door.';
+      status.className = 'ok';
+    }
+    render(ctx);
   }
-
-  status.textContent = '✅ Every walkable tile is reachable from the door.';
-  status.className = 'ok';
+  requestAnimationFrame(step);
 }
 
 async function init() {
@@ -1049,6 +1089,7 @@ async function init() {
   async function switchMap(key) {
     currentMapKey = key;
     dungeonCheckOverlay = null; // stale as soon as a different map is loaded
+    dungeonCheckAnimId++;
     document.getElementById('dungeonCheckStatus').textContent = '';
     document.getElementById('dungeonCheckStatus').className = '';
     setModeVisibility();
@@ -1280,8 +1321,7 @@ async function init() {
   });
 
   document.getElementById('checkDungeonMapBtn').addEventListener('click', () => {
-    checkDungeonMap();
-    render(ctx);
+    checkDungeonMap(ctx);
   });
 
   document.getElementById('jumpToExportBtn').addEventListener('click', () => {

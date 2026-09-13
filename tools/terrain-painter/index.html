@@ -181,6 +181,8 @@
 </div>
 <div id="dungeonCheckControls" class="single-map-only">
   <button id="checkDungeonMapBtn">Check Map</button>
+  <label for="dungeonCheckSpeed" title="How many tiles the check animation reveals per frame - low is slow enough to watch, high is close to instant">Speed:</label>
+  <input type="range" id="dungeonCheckSpeed" min="1" max="200" value="150">
   <span id="dungeonCheckStatus"></span>
 </div>
 <canvas id="worldCanvas" width="1200" height="880"></canvas>

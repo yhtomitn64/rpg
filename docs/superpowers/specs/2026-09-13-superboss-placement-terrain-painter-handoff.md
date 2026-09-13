@@ -10,6 +10,44 @@ session's own worktree lands after `EnterWorktree` — recreate it from
 `main` deploys on push, and there's a known bug below blocking that
 anyway).
 
+## Update, later the same day (2026-09-13): items 1, 2, 3 (dungeon-only), 4 done
+
+A follow-up session picked this up and built, in order: **item 1**
+(order-independent progression checking - `checkProgression()` rewritten
+as a fixed-point/iterative-unlock algorithm), **item 2** (dungeon-interior
+"Check Map" - `checkDungeonMap()`), **item 4** (unsaved-changes indicator +
+export glow), then **item 3 scoped to the dungeon check only** (animated
+reveal + speed slider) - the wilderness animation is explicitly deferred,
+see the reasoning in CHANGELOG.md's `[Unreleased]` "Not yet built" note
+(item 1's rewrite turned wilderness checking into a multi-pass fixed-point
+loop, which makes a coherent animation a design question, not a rendering
+one, unlike the dungeon check's single flood-fill). Committed as
+`1ef0397`/`0753dc7` (amended for attribution). Full test suite is
+1231/1232, same one known failure as before.
+
+**Important correction while building item 2**: the "one known bug"
+section right below originally understated `superBossFive`'s dungeon bug.
+Running the new dungeon-interior Check Map directly against the map data
+(outside the test framework, so nothing stops at the first failure) found
+**558 of 650 walkable tiles unreachable from the door, including the
+`guardian` tile itself** - the dungeon is currently unwinnable, not just
+cosmetically messy near the guardian. Corrected in the section below and
+in CHANGELOG.md. Timothy still needs to repaint it himself; nothing to
+automate here.
+
+**Not yet done, still open**: the wilderness "Check Map"'s own reveal
+animation (see above). Everything else from the original opening prompt
+below is complete. UI changes are logic- and syntax-checked but have not
+been exercised in a real browser - the terrain painter's authoring server
+was already running live (presumably Timothy's own session) on port 8000
+throughout this work, and since its client state lives in `localStorage`
+shared across all tabs of the same origin, opening a second tab to test
+would have raced his in-progress work, so that was deliberately avoided.
+Whoever picks this up next should ask Timothy to reload his tab (safe -
+autosave restores in-progress edits on reload) and confirm the new UI
+actually looks and behaves as intended before considering this branch
+close to mergeable.
+
 ## What's fully done (don't redo this)
 
 The whole superboss-expansion plan (`docs/superpowers/plans/2026-09-13-superboss-expansion.md`,
