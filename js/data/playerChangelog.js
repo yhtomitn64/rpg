@@ -5,6 +5,19 @@
 // or care about while playing. Keep it in sync manually: add a new entry
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
+  // The real player-facing entry the 0.35.2 comment below promised: the
+  // blocking reachability bug (superBossFive's dungeon) is fixed and
+  // verified (npm test, plus the terrain painter's own new Check Map) and
+  // this now reaches main. No made-up boss names here - MONSTERS still
+  // has them as "[PLACEHOLDER NAME]" in js/data/monsters.js, an unrelated
+  // and still-open content gap, not something to paper over in this entry.
+  {
+    version: '0.35.3',
+    date: '2026-09-13',
+    highlights: [
+      "New: four more superbosses now roam the world, each guarding its own hidden dungeon - on top of the one that was already out there.",
+    ],
+  },
   // Internal-only, even though the four new superbosses are now genuinely
   // placed in the world (screenId/x/y set, dungeons authored) - not
   // announced yet because superBossFive's dungeon has a known unreachable-

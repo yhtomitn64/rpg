@@ -24,6 +24,8 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.35.3] - 2026-09-13
+
 ### Added
 - **Terrain painter: order-independent tool-progression checking.** The
   wilderness "Check Map"'s `checkProgression()`
@@ -77,6 +79,17 @@ public API, no formal release process — commits land straight on
   just a scroll-and-flash) in that case, and both fall back to the old
   copy-to-clipboard behavior for wilderness screens or without the server
   running.
+
+### Fixed
+- **`superBossFive`'s dungeon is now fully reachable, guardian included.**
+  Timothy repainted the single broken connection himself, live in the
+  terrain painter, using the new dungeon-interior Check Map above to find
+  exactly where the path was cut (one wall tile turned back into floor) -
+  confirmed by both the new Check Map (0 unreachable tiles) and
+  `npm run test` (`tests/superBosses.test.js`'s `assertFullyReachable`,
+  previously the one known failure on this branch, now passing). See the
+  correction note below for how much worse this bug actually was than
+  first logged.
 
 ### Not yet built (raised the same session, tracked for follow-up)
 - The wilderness "Check Map"'s own reveal animation - only the
