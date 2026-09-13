@@ -163,7 +163,45 @@ async function readJsonBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString());
 }
 
+// Mirrors painter.js's client-side SINGLE_MAPS registry (a separate runtime,
+// no shared import path between browser and Node, so kept independently in
+// sync) - every existing single-map file this server is allowed to patch.
+// mapId is checked against this fixed table, never trusted straight into a
+// path, same rationale as SCREEN_IDS above. "New Dungeon" files aren't
+// listed here on purpose - a mapId with no file yet would make
+// handlePatchSingleMap's readFile below throw ENOENT; those go through
+// handleCreateDungeon (which also handles their first-time main.js
+// registration) instead, every time, not just their first save.
+const SINGLE_MAP_FILES = {
+  dungeon: join(REPO_ROOT, 'js', 'maps', 'dungeonMap.js'),
+  miniDungeonA: join(REPO_ROOT, 'js', 'maps', 'miniDungeons', 'variantA.js'),
+  miniDungeonB: join(REPO_ROOT, 'js', 'maps', 'miniDungeons', 'variantB.js'),
+  miniDungeonC: join(REPO_ROOT, 'js', 'maps', 'miniDungeons', 'variantC.js'),
+  miniDungeonD: join(REPO_ROOT, 'js', 'maps', 'miniDungeons', 'variantD.js'),
+  miniDungeonE: join(REPO_ROOT, 'js', 'maps', 'miniDungeons', 'variantE.js'),
+  axeDungeon: join(REPO_ROOT, 'js', 'maps', 'toolDungeons', 'axeDungeon.js'),
+  pickDungeon: join(REPO_ROOT, 'js', 'maps', 'toolDungeons', 'pickDungeon.js'),
+  canoeDungeon: join(REPO_ROOT, 'js', 'maps', 'toolDungeons', 'canoeDungeon.js'),
+  portalDungeon: join(REPO_ROOT, 'js', 'maps', 'toolDungeons', 'portalDungeon.js'),
+};
+for (const entry of Object.values(SUPER_BOSSES)) {
+  if (entry.hasDungeon && entry.dungeonMapId) {
+    SINGLE_MAP_FILES[entry.dungeonMapId] = join(REPO_ROOT, 'js', 'maps', 'superBosses', `${entry.dungeonMapId}.js`);
+  }
+}
+
 // --- API endpoints ---------------------------------------------------------
+
+async function handlePatchSingleMap(req, res) {
+  const { mapId, legendRowsText } = await readJsonBody(req);
+  const filePath = SINGLE_MAP_FILES[mapId];
+  if (!filePath) throw new Error(`Unknown single-map id: '${mapId}' (not in SINGLE_MAP_FILES - a brand-new "New Dungeon" not yet saved once via "Save New Dungeon to Server"?)`);
+  const originalText = await readFile(filePath, 'utf8');
+  const patched = patchLegendRows(originalText, legendRowsText, filePath);
+  if (patched !== originalText) await writeFile(filePath, patched);
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ changed: patched !== originalText }));
+}
 
 async function handlePatchWilderness(req, res) {
   const { screenId, legendRowsText } = await readJsonBody(req);
@@ -294,6 +332,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (req.method === 'POST' && req.url === '/api/patch-wilderness') return await handlePatchWilderness(req, res);
+    if (req.method === 'POST' && req.url === '/api/patch-single-map') return await handlePatchSingleMap(req, res);
     if (req.method === 'POST' && req.url === '/api/patch-superboss') return await handlePatchSuperBoss(req, res);
     if (req.method === 'POST' && req.url === '/api/create-dungeon') return await handleCreateDungeon(req, res);
     return await serveStatic(req, res);

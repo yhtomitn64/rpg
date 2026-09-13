@@ -581,6 +581,52 @@ function exportSingleMap() {
   return buildLegendRowsText(singleGrid, singleMapW, singleMapH);
 }
 
+// Whether the currently-loaded single map can be saved straight to disk via
+// /api/patch-single-map: it has to be a real existing file (excludes both
+// wilderness, which uses its own bulk-export path, and an in-progress "New
+// Dungeon" that has no file yet - that one's first save has to go through
+// /api/create-dungeon instead, which also handles main.js registration).
+function canSaveSingleMapToServer() {
+  if (currentMapKey === 'wilderness' || !serverAvailable) return false;
+  const def = SINGLE_MAPS[currentMapKey];
+  return Boolean(def && !def.isNewDungeon);
+}
+
+// #exportBtn's one action, named for what it actually does in each mode:
+// writes straight to disk when it can (any pre-existing single map, e.g. a
+// tool/dragon/mini/superboss dungeon, with the authoring server running),
+// otherwise falls back to the old copy-to-clipboard-and-paste-by-hand flow
+// (wilderness screens always use this - they're covered by "Export All
+// Changed to Files" instead - and so does any setup without the server).
+async function performExportOrSave() {
+  const status = document.getElementById('exportStatus');
+  if (canSaveSingleMapToServer()) {
+    status.textContent = 'Saving…';
+    try {
+      const { changed } = await postJson('/api/patch-single-map', { mapId: currentMapKey, legendRowsText: exportSingleMap() });
+      status.textContent = changed ? 'Saved to disk.' : 'Already up to date on disk.';
+      clearDirty();
+    } catch (err) {
+      status.textContent = `Failed: ${err.message}`;
+    }
+    return;
+  }
+  const text = currentMapKey === 'wilderness'
+    ? exportScreen(document.getElementById('exportSelect').value)
+    : exportSingleMap();
+  document.getElementById('exportOutput').value = text;
+  try {
+    await navigator.clipboard.writeText(text);
+    status.textContent = 'Copied to clipboard.';
+  } catch (err) {
+    status.textContent = 'Clipboard blocked — copy from the text box below.';
+  }
+}
+
+function updateExportBtnLabel() {
+  document.getElementById('exportBtn').textContent = canSaveSingleMapToServer() ? 'Save to Server' : 'Copy LEGEND/ROWS';
+}
+
 // --- Bulk export straight to disk (File System Access API) -----------------
 // Avoids the 25x manual "copy LEGEND/ROWS, paste over the file" cycle for the
 // wilderness screens. Reads each real file fresh, patches only its
@@ -1118,6 +1164,7 @@ async function init() {
     dungeonCheckAnimId++;
     document.getElementById('dungeonCheckStatus').textContent = '';
     document.getElementById('dungeonCheckStatus').className = '';
+    updateExportBtnLabel();
     setModeVisibility();
     // Gated separately from setModeVisibility's wilderness-vs-single-map
     // split - "Save New Dungeon to Server" only makes sense for a
@@ -1350,13 +1397,17 @@ async function init() {
     checkDungeonMap(ctx);
   });
 
-  document.getElementById('jumpToExportBtn').addEventListener('click', () => {
+  document.getElementById('jumpToExportBtn').addEventListener('click', async () => {
     const target = currentMapKey === 'wilderness'
       ? document.getElementById('exportAllBtn')
       : document.getElementById('exportRow');
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     target.classList.add('export-flash');
     setTimeout(() => target.classList.remove('export-flash'), 1300);
+    // When the click can just save straight to disk, do that too instead of
+    // making the user scroll down and click a second button - the scroll is
+    // still worth doing so they can see the result land.
+    if (canSaveSingleMapToServer()) await performExportOrSave();
   });
 
   const brushSizeInput = document.getElementById('brushSize');
@@ -1472,17 +1523,7 @@ async function init() {
     exportSelect.appendChild(opt);
   }
 
-  document.getElementById('exportBtn').addEventListener('click', async () => {
-    const text = currentMapKey === 'wilderness' ? exportScreen(exportSelect.value) : exportSingleMap();
-    document.getElementById('exportOutput').value = text;
-    const status = document.getElementById('exportStatus');
-    try {
-      await navigator.clipboard.writeText(text);
-      status.textContent = 'Copied to clipboard.';
-    } catch (err) {
-      status.textContent = 'Clipboard blocked — copy from the text box below.';
-    }
-  });
+  document.getElementById('exportBtn').addEventListener('click', performExportOrSave);
 
   const repoStatus = document.getElementById('repoStatus');
   const chooseRepoBtn = document.getElementById('chooseRepoBtn');
@@ -1494,6 +1535,7 @@ async function init() {
   // comment for why an OPTIONS preflight is what distinguishes "server
   // running" from "no server, or a plain static file server."
   serverAvailable = await checkServerAvailable();
+  updateExportBtnLabel();
 
   if (serverAvailable) {
     chooseRepoBtn.style.display = 'none';

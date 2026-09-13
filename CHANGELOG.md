@@ -55,9 +55,28 @@ public API, no formal release process — commits land straight on
   broken map at all. Registered from `SUPER_BOSSES`' own `dungeonMapId`
   field (every existing file follows `dungeonMapId`'s name exactly - see
   `js/maps/superBosses/superBossFive.js` etc.), *not* as `isNewDungeon` -
-  these files already exist, so saving them uses the same Copy-LEGEND/
-  ROWS-and-paste-by-hand path every other pre-existing single map already
-  uses, not "Save New Dungeon to Server."
+  these files already exist, so saving them goes through the new direct-
+  to-disk save path below, not "Save New Dungeon to Server."
+- **Terrain painter: existing single maps (dragon/tool/mini/superboss
+  dungeons) now save straight to disk, one click, no manual paste.**
+  Raised live: repainting `superBossFive` and then hitting the export
+  button "just shows me the stuff to export" instead of actually saving -
+  right, that button only ever copied `LEGEND`/`ROWS` to the clipboard for
+  hand-pasting into the file, the one save path these dungeon types never
+  had (bulk export only covers wilderness screens; "Save New Dungeon to
+  Server" only applies to a dungeon that doesn't have a file yet). New
+  `/api/patch-single-map` server endpoint (`tools/terrain-painter/
+  server.js`) patches an existing single map's `LEGEND`/`ROWS` block in
+  place, the same way `/api/patch-wilderness` already does per screen -
+  validated against a fixed `SINGLE_MAP_FILES` table (the five superboss
+  dungeons included, derived from `SUPER_BOSSES` the same way the
+  dropdown fix above is), never a raw path from the request. The export
+  button now reads "Save to Server" and writes directly to disk instead
+  of copying to the clipboard whenever a real file + the authoring server
+  are both available; the "↓ Save" button performs the same save (not
+  just a scroll-and-flash) in that case, and both fall back to the old
+  copy-to-clipboard behavior for wilderness screens or without the server
+  running.
 
 ### Not yet built (raised the same session, tracked for follow-up)
 - The wilderness "Check Map"'s own reveal animation - only the
