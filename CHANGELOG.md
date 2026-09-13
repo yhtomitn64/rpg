@@ -35,6 +35,10 @@ public API, no formal release process — commits land straight on
 - **Four new `SUPER_BOSSES` registry entries added (`superBossTwo` through `superBossFive`).**
   Each starts inert (`screenId: null`, `x: null`, `y: null`) following the same pattern as `superBossOne` before placement via the terrain painter. All default to `hasDungeon: false` (wilderness encounters, not dungeon-gated); Timothy can convert any to dungeon entrances later using the existing terrain-painter tooling with zero new code. Each entry carries a `debutNgPlusCycle` field (1–4 respectively) gating when it can be encountered, consistent with Task 5's `isSuperBossDebuted` predicate wiring.
 
+### Fixed
+- **`superBossThree` and `superBossFour` retuned after `--cycle-sweep` validation showed their first-pass stats badly missing the design goal's target bands at their own debut cycle.**
+  `superBossThree` (debuts NG+2) was a losing grind at cycle-ceiling gear (0% win rate despite heavy potion use) — `hp` 800→640 and `attack` 70→60 brought it to a real win with heavy resource spend. `superBossFour` (debuts NG+3) was a near-instant burst-death at cycle-ceiling gear (0.2% win, almost no potions used) — `attack` 77→58 fixed the burst-death shape, then `hp` 563→480 (a second pass) raised its win rate to a narrow but real win. `superBossFive` (debuts NG+4) also got a two-pass `attack` retune (82→59→48) but is still essentially unwinnable at its own debut cycle's ceiling gear after both passes — left as-is for real playtesting rather than a third guess, per this plan's two-pass cap. `superBossTwo` needed no change. See `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`'s "Validation results (implementation)" section for full sweep numbers.
+
 ## [0.34.8] - 2026-09-13
 
 ### Added
