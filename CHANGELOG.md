@@ -24,6 +24,8 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.35.1] - 2026-09-13
+
 ### Fixed
 - **Fix wave from the final whole-branch review of `feature/superboss-expansion`.**
   Ten findings addressed: (1) `js/data/playerChangelog.js`'s 0.35.0 entry claimed
@@ -52,6 +54,12 @@ public API, no formal release process — commits land straight on
   threads (simulator potion/buff-tonic modeling gap, missing cycle-sweep
   midpoints, `debutNgPlusCycle`'s open-floor gating) in
   `docs/superpowers/BACKLOG.md` so they aren't lost.
+- **`js/data/playerChangelog.js`'s guard comment above the 0.35.0 entry was left
+  stale by finding (1) above.** It still warned "this entry ... is only accurate
+  once that placement lands; don't let it ship ... ahead of that", contradicting
+  the entry it documents, which finding (1) had already reworded to the accurate
+  "groundwork shipped, nothing to notice yet" framing. Reworded to stop telling
+  the next session to hold the branch back for a reason that no longer applies.
 
 ## [0.35.0] - 2026-09-13
 

@@ -5,12 +5,29 @@
 // or care about while playing. Keep it in sync manually: add a new entry
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
+  // Internal-only, same reason 0.34.7/0.34.8 got entries (see this file's
+  // header + those entries' own comments): a fix wave from the final
+  // whole-branch review of the superboss expansion branch - documentation
+  // wording, a test assertion, and code comments corrected (including the
+  // now-stale guard comment just below this entry, on the 0.35.0 entry),
+  // plus one dev-only script's unused import removed. No gameplay code
+  // changed and the four new superbosses are still unplaced (screenId/x/y
+  // still null), so there's nothing new for a player to find in-game.
+  {
+    version: '0.35.1',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some documentation and test cleanup from a final review pass - nothing to notice in-game.",
+    ],
+  },
   // Written ahead of world placement: as of this commit the four bosses below
   // are registered in js/data/superBosses.js with screenId/x/y still null (see
   // CHANGELOG.md's 0.35.0 entry) - placing them in the world is Timothy's own
-  // next step before this branch reaches main. This entry describes the
-  // finished feature and is only accurate once that placement lands; don't let
-  // it ship to players (main / the live footer) ahead of that.
+  // next step before this branch reaches main. Reworded during the final
+  // whole-branch review (see the 0.35.1 entry above) to match this file's
+  // "groundwork shipped, nothing to notice yet" convention, so it's accurate
+  // to ship as-is even before placement - it no longer claims the bosses are
+  // reachable.
   {
     version: '0.35.0',
     date: '2026-09-13',
