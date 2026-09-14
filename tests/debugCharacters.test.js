@@ -59,6 +59,26 @@ test('revisiting the same ?debug URL resets the slot instead of creating a dupli
   assert.equal(loadState(slots[0].id, storage).player.level, 10);
 });
 
+test('revisiting a ?debug URL preserves settings toggled since (e.g. audioBeta), not just gameplay state', () => {
+  const storage = createFakeStorage();
+  applyDebugCharacterFromUrl('?debug=level10', storage);
+  const afterFirstLoad = loadState('debug-level10', storage);
+  assert.equal(afterFirstLoad.settings.featureFlags.audioBeta, false, 'factory default is off');
+  // Simulate flipping Settings > Feature Flags > Audio (beta) on mid-session.
+  const toggledOn = {
+    ...afterFirstLoad,
+    settings: { ...afterFirstLoad.settings, featureFlags: { ...afterFirstLoad.settings.featureFlags, audioBeta: true } },
+  };
+  upsertSlot('debug-level10', '[Debug] level10', toggledOn, storage);
+  // A reload of the same debug URL used to stomp settings back to the
+  // factory's hardcoded defaults - see applyDebugCharacterFromUrl's own
+  // comment for the live report this fixed.
+  applyDebugCharacterFromUrl('?debug=level10', storage);
+  const state = loadState('debug-level10', storage);
+  assert.equal(state.settings.featureFlags.audioBeta, true, 'a reload should not silently revert audioBeta to off');
+  assert.equal(state.player.level, 10, 'gameplay state should still reset to the debug character\'s own values');
+});
+
 test('a debug character never collides with a real player\'s save slots', () => {
   const storage = createFakeStorage();
   storage.setItem('emoji-rpg-slots', JSON.stringify([{ id: 'slot-real', name: 'My Hero', level: 5, ngPlusCycle: 0 }]));

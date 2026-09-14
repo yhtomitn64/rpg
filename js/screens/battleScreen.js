@@ -10,7 +10,7 @@ import { LOADOUT_SIZE } from '../systems/loadout.js';
 import { isTimedBuffPotion, createActiveBuffs, activateTimedBuff, tickActiveBuffs, getActiveBuffBonuses, combineBonuses } from '../systems/buffPotions.js';
 import { hasSeenScreen, markScreenSeen } from '../systems/screenSeen.js';
 import { logEvent } from '../systems/telemetry.js';
-import { playSfx } from '../systems/audio.js';
+import { playSfx, playMusic, stopMusic, getCurrentMusicId } from '../systems/audio.js';
 import { bindEscapeClose, bindBackdropClose } from './dialogChrome.js';
 import { renderSectionsHtml } from './mechanicExplainerScreen.js';
 
@@ -65,6 +65,13 @@ let battleOver = false;
 // stagger loop below, the trail-ghost spawn timers - needs to check this
 // specifically, since battleOver alone doesn't cover an abrupt unmount.
 let unmounted = false;
+// Captured at mount() so endBattle() can crossfade back to whatever was
+// playing before this battle started, instead of the battle theme just
+// cutting to silence (or the wrong track) when the fight ends.
+let previousMusicId = null;
+// Also captured at mount() so endBattle() can pick the matching victory
+// stinger/theme without recomputing it from monsterIds a second time.
+let isBossBattle = false;
 let log = [];
 let elements = {};
 let endBattleTimeoutId = null;
@@ -233,10 +240,13 @@ function handleLacerateRetriggerPress() {
   const elapsedPercent = Math.min(100, (elapsedMs / lacerate.retrigger.windowMs) * 100);
   closeLacerateRetriggerWindow();
   if (resolveTimingHit(elapsedPercent, lacerate.retrigger.sweetSpotStartPercent, lacerate.retrigger.sweetSpotEndPercent)) {
+    playSfx('timingSuccess');
     buffState = activateBuff({ buffDurationMs: lacerate.retrigger.buffDurationMs }, 'lacerate');
     log.push('Lacerate\'s follow-through lands! Your attacks hit harder for a while.');
     updateBuffIndicator();
     updateLog();
+  } else {
+    playSfx('timingFail');
   }
   updateMenu();
 }
@@ -249,6 +259,7 @@ function cycleTarget(direction) {
     ? 0
     : (currentPos + direction + living.length) % living.length;
   selectedMonsterIndex = living[nextPos];
+  playSfx('menuMove');
   updateMonsterSelection();
 }
 
@@ -641,11 +652,22 @@ function closeItemMenu() {
 // only way to close it now.
 function selectItemMenuSlot(index) {
   const itemId = state.loadout[index];
-  if (!itemId) return;
+  if (!itemId) {
+    playSfx('actionInvalid');
+    return;
+  }
   const owned = state.inventory.find((entry) => entry.itemId === itemId)?.quantity || 0;
-  if (owned === 0) return;
-  if (itemId === 'secondWind' && secondWindAvailable) return;
+  if (owned === 0) {
+    playSfx('actionInvalid');
+    return;
+  }
+  if (itemId === 'secondWind' && secondWindAvailable) {
+    playSfx('actionInvalid');
+    return;
+  }
   itemMenuSelectedIndex = index;
+  // No separate menuSelect sound here - drinkPotion() plays that potion's
+  // own sound, which already carries the "selection landed" feedback.
   drinkPotion(itemId);
   renderItemMenu();
   startItemMenuAutoCloseTimer();
@@ -658,6 +680,11 @@ function handleItemMenuKeydown(event) {
     closeItemMenu();
     return;
   }
+  // Guard every branch below against the browser's own key-repeat (raised
+  // live for target-cycling's ArrowLeft/Right - see cycleTarget's own key
+  // handler comment): without it, holding '1' would rapid-fire drinking a
+  // potion, and holding an arrow would machine-gun the menuMove click.
+  if (event.repeat) return;
   if (key >= '1' && key <= '4') {
     event.preventDefault();
     selectItemMenuSlot(Number(key) - 1);
@@ -666,12 +693,14 @@ function handleItemMenuKeydown(event) {
   if (key === 'ArrowLeft' || key === 'ArrowUp') {
     event.preventDefault();
     itemMenuSelectedIndex = (itemMenuSelectedIndex + LOADOUT_SIZE - 1) % LOADOUT_SIZE;
+    playSfx('menuMove');
     renderItemMenu();
     return;
   }
   if (key === 'ArrowRight' || key === 'ArrowDown') {
     event.preventDefault();
     itemMenuSelectedIndex = (itemMenuSelectedIndex + 1) % LOADOUT_SIZE;
+    playSfx('menuMove');
     renderItemMenu();
     return;
   }
@@ -693,12 +722,30 @@ function consumeGuaranteedCritBonus() {
   return playerEffectBonuses.critChancePercent / 100;
 }
 
+// Maps each consumable's itemId (js/data/items.js) to its own sound id
+// (js/data/soundManifest.js) - the plain heal potion is itemId 'potion' but
+// sound id 'potionHeal', everything else just gets a 'potion' prefix.
+const POTION_SOUND_IDS = {
+  potion: 'potionHeal',
+  strengthDraught: 'potionStrengthDraught',
+  ironSkinTonic: 'potionIronSkinTonic',
+  swiftElixir: 'potionSwiftElixir',
+  vampiricTonic: 'potionVampiricTonic',
+  momentumElixir: 'potionMomentumElixir',
+  emberVial: 'potionEmberVial',
+  thornbarkDraught: 'potionThornbarkDraught',
+  focusTonic: 'potionFocusTonic',
+  berserkerTonic: 'potionBerserkerTonic',
+  secondWind: 'potionSecondWind',
+};
+
 // The real dispatch: heal (the only item with `.heal`), a timed buff
 // (anything with `buffDurationMs`), or a one-shot flag (berserkerTonic/
 // secondWind, consumed elsewhere - see consumeGuaranteedCritBonus() above
 // and the Second Wind check inside monsterAttack()).
 function drinkPotion(itemId) {
   logEvent('potion_used', { itemId, inBattle: true, ngPlusCycle: state.ngPlusCycle });
+  playSfx(POTION_SOUND_IDS[itemId]);
   Object.assign(state, removeItem(state, itemId, 1));
   const item = ITEMS[itemId];
   if (item.heal) {
@@ -1525,6 +1572,14 @@ function handleKeydown(event) {
   }
   if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'Tab') {
     event.preventDefault();
+    // Same reasoning as mapScreen.js's own movement-key handling: the
+    // browser's OS-level auto-repeat fires keydown at its own fast, unrelated
+    // cadence while a key is held, which drove this into a rapid-fire
+    // menuMove click the moment cycleTarget() started making noise (raised
+    // live: "hold down the right key... constant rapid fire click sound").
+    // One target hop per physical press reads right; a machine-gunned cycle
+    // through every target while a key is held down never did.
+    if (event.repeat) return;
     cycleTarget(key === 'ArrowLeft' ? -1 : 1);
     return;
   }
@@ -1609,7 +1664,7 @@ function resolveOneAttack(countsTowardStreak) {
   // (display: none), so a killing blow's damage number/flash/shake is
   // actually visible instead of rendering onto an already-hidden element.
   playPlayerSwing(null, elements.monsterZones[targetIndex], result.isCrit);
-  playHitEffect(elements.monsterZones[targetIndex], elements.monsterEmojis[targetIndex], result.damage, result.isCrit);
+  playHitEffect(elements.monsterZones[targetIndex], elements.monsterEmojis[targetIndex], result.damage, result.isCrit, { impactSoundId: 'attackPunch' });
   recordPlayerDamage('attack', result.damage, elements.monsterZones[targetIndex]);
   applyOnHitEffects(target, result.damage, streakMultiplier);
   if (countsTowardStreak && state.settings.featureFlags?.mechanicExplainersBeta) {
@@ -1910,6 +1965,11 @@ function resolveMonsterWindup(monster, parried, { requireZone = true, playHeroEf
   monster.pendingSpecialAttack = null;
   const index = monsterCombatants.indexOf(monster);
   if (parried && (!requireZone || resolveParryAttempt(elapsedPercent, playerEffectBonuses.parryWindowBonusPercent))) {
+    // Unconditional on playHeroEffect - that flag only suppresses the visual
+    // badge in multi-mob (so three simultaneous parries don't stack three
+    // badges on the hero), the sound should still land every time a parry
+    // actually connects.
+    playSfx('parrySuccess');
     const { damage, isCrit } = rollIncomingDamage(monster, playerCombatant);
     const result = resolveParrySuccess(monster, damage);
     monster.hp = result.monsterHp;
@@ -2133,6 +2193,16 @@ function toggleBattlePause() {
 
 function endBattle(outcome) {
   battleOver = true;
+  // Crossfade back to whatever was playing before this battle (captured at
+  // mount()), or fade to silence if nothing was - either way, no hard cut.
+  if (previousMusicId) {
+    playMusic(previousMusicId);
+  } else {
+    stopMusic();
+  }
+  if (outcome === 'won') {
+    playSfx(isBossBattle ? 'bossBattleEnd' : 'battleEnd');
+  }
   // A still-resolving ability sequence (e.g. an AOE stagger) can end the
   // battle while paused - see the battlePaused declaration's own comment on
   // why those aren't frozen. Drop the pause rather than let its dim overlay
@@ -2300,6 +2370,13 @@ export function mount(root, props) {
   monsterIds = props.monsterIds;
   monsterOverridesList = props.monsterOverrides || monsterIds.map(() => null);
   callbacks = props.callbacks;
+  // Crossfade into the battle theme (playMusic's default 1500ms fade) and
+  // remember whatever was already playing so endBattle() can crossfade back
+  // to it rather than cutting to silence.
+  isBossBattle = monsterIds.some((id) => MONSTERS[id].isBoss);
+  previousMusicId = getCurrentMusicId();
+  playMusic(isBossBattle ? 'bossBattleTheme' : 'battleTheme');
+  playSfx(isBossBattle ? 'bossBattleStart' : 'battleStart');
   battleOver = false;
   unmounted = false;
   battlePaused = false;

@@ -1,5 +1,5 @@
 import { loadState, saveState, DEFAULT_HERO_EMOJI, DEFAULT_DUNGEON_ENTRANCE_POSITION, migrateRingSlots, migratePowerRingSlot, migrateAccessorySlots, migrateBestDamage, migrateLoadout, migrateSettings, migrateAudioSettings, migrateHudSettings, migrateFeatureFlags, migrateCameraSettings, migrateCharacterId } from './state.js';
-import { initAudio, unlockAudio, syncAudioSettings } from './systems/audio.js';
+import { initAudio, unlockAudio, syncAudioSettings, playSfx } from './systems/audio.js';
 import { mountScreen, mountOverlay, unmountOverlay } from './screens/screenManager.js';
 import * as mapScreen from './screens/mapScreen.js';
 import * as battleScreen from './screens/battleScreen.js';
@@ -1213,6 +1213,7 @@ function promptPostDeathTravel() {
         Object.assign(state, spendGold(state, warpCost));
         const { screenId, x, y } = state.dungeonEntrancePosition;
         state.position = { x, y };
+        playSfx('comebackWarp');
         persist();
         goToMap(screenId);
       },
@@ -1235,7 +1236,7 @@ initItemTooltip();
 // automated, not tied to the real CHANGELOG.md version. Gated on hostname
 // (never shows on the deployed site) rather than a URL param, so it works
 // on a plain reload with no param to remember.
-const DEV_BUILD_TAG = 'canvas-dev8-shared-clock';
+const DEV_BUILD_TAG = 'audio-sfx-wiring-3-debug-settings-fix';
 if (typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   const badge = document.createElement('div');
   badge.textContent = `dev build loaded: ${DEV_BUILD_TAG}`;

@@ -2429,6 +2429,52 @@ Two findings from that session worth not rediscovering:
   are the reason it wins here. Don't re-run that experiment without a
   new reason.
 
+**Before wiring the `walking` footstep sound — the logical step and the
+visual footfall are not the same instant.** Raised 2026-09-10 by the
+session doing the walk-stutter work. `walkTick()`
+(`js/screens/mapScreen.js`) fires when a step is *registered*, which is
+when the character starts moving off the old tile; the stride then takes
+`WALK_REPEAT_INTERVAL_MS` (110ms) to cross. So a footstep played straight
+from `walkTick` plays on departure, not on footfall. Whether that reads
+wrong is a taste call that needs hearing — but if it does, **the fix is
+not a hardcoded delay**: `resolveHeroStepMs()`
+(`js/screens/mapCanvasRenderer.js`) returns the stride duration only when
+`cameraSmoothingMs > 0`, and returns 0 at the slider's "no smoothing"
+end, where the hero snaps and departure and footfall collapse to the same
+instant. So the offset is 110ms-or-zero depending on a user setting; any
+delay has to read `resolveHeroStepMs()` and track it, or footsteps will
+be late for anyone who turns camera glide off. (Verified against
+`f1d29bf`, which changed the camera's target but left
+`resolveHeroStepMs` alone.)
+
+**Basic Attack has its own punch sound. Shipped 2026-09-13 (0.33.0).**
+Decided 2026-09-10: the basic Attack (`a`) is a *punch*, not a weapon
+swing, and it's a real rotation element rather than filler — diminishing
+returns on spam today, buffable into a strong option later — so it reads
+as its own move instead of sharing the generic `hitNormal` thud. New sound
+id `attackPunch`, wired as `playHitEffect`'s `impactSoundId` at the Attack
+call site (the same mechanism Faultline's `abilitySweepImpact` already
+uses), so it *replaces* `hitNormal` there rather than layering over it.
+`hitNormal` stays as the shared impact under Impale (1) / Sever (2) /
+Lacerate (3), which add their own swing above it; crits still use
+`hitCrit` either way so a crit always reads as a crit.
+
+**Follow-up raised 2026-09-13 while shipping the above: the chosen takes
+are long.** Timothy picked `attackPunch`'s 4-take rotation from
+`batch10-fulllength` (the deliberately *untrimmed* regeneration of the
+winning layered-punch treatments) — they land at 2.6-2.8s each, not the
+sub-second range a repeatable button wants. He also picked `abilitySweepImpact`
+(Faultline's per-enemy hit) from `batch11-named-punches`'s `cannonBlast`
+take, at ~2s — but that impact fires once per living enemy staggered
+`SWEEP_STAGGER_MS` (260ms) apart (`js/screens/battleScreen.js`), so at ~2s
+each, three or more enemies will have three or more full impacts stacked
+and ringing simultaneously. Shipped as picked, per direct instruction, but
+worth a listen in a real multi-enemy Faultline cast before calling it
+final — if it smears, both are one `hard_trim` re-cut away from fixing
+(the raw files are still sitting in `emoji-rpg-audio/outputs/`, no
+regeneration needed, just a shorter cut with a 100ms+ fade per the
+finding below).
+
 Tooling for all of this lives outside this repo, in its own local git
 repo at `C:/Users/tim/git/emoji-rpg-audio`: catalog-driven generators
 keyed off this repo's own `soundManifest.js` sound ids, a browser
@@ -2438,54 +2484,105 @@ converts picks to mp3 and drops them into `assets/audio/` under the
 filenames the manifest expects. Its `HANDOFF.md` is the entry point.
 
 **Open audio follow-ups, raised 2026-09-10:**
-- **Re-render the shipped ability sounds shorter.** They went out at
-  1.0s, generated long deliberately so the different style directions
-  were distinguishable while picking. Combat is much faster than that —
-  Timothy's own steer was under a second, ideally 250-500ms — so they
-  likely read as sluggish in real fights. Faultline is the sharpest
-  case: it resolves as a staggered walk across every living enemy
-  (`SWEEP_STAGGER_MS`, 260ms apart), so its per-enemy impact has to be
-  shorter than that or consecutive hits smear together. The generator
-  takes `--duration`, so re-rendering the same picks shorter is one
-  command.
 - **Narrow Lacerate to one style.** `abilitySwingSlash` shipped with 8
   takes mixing three different sonic directions (two older generic ones
   plus "visceral" and "flesh" from the style matrix). Rotation across
-  inconsistent takes can read as incoherent rather than varied.
-- **Pick the remaining ~48 sounds.** Only 7 of the catalogue have any
-  chosen audio. Two ids have no generated candidates at all under the
-  current model — `eliteEncounterSting` and `celebrationGeneric`, both
-  added to the manifest after the original prompt catalog was written.
-- **Curate the four CC0 sounds** the asset-catalog doc deliberately
-  excludes from generation: `itemPickupCommon`, `questTurnIn`,
-  `shopTransaction`, `walking`.
-- **Music is generated but none is picked or installed.** 20 ACE-Step
-  candidates exist for each of the 9 themes. Open design question raised
-  while listening: regular battles are short and boss fights are long,
-  so a player may never hear a whole battle track. Suggested direction —
-  write `battleTheme` as a short seamless loop built to repeat and save
-  the long-form structure for `bossBattleTheme`, rather than lengthening
-  regular battles to fit the music.
+  inconsistent takes can read as incoherent rather than varied. Partly
+  superseded by the fresh Impale/Sever/Lacerate candidates from
+  2026-09-13 below — a decision there could replace this whole rotation
+  rather than narrow it.
+- **Pick the remaining sounds.** Several more shipped 2026-09-13 (see
+  below), but most of the catalogue is still unchosen. Two ids have no
+  generated candidates at all under the current model —
+  `eliteEncounterSting` and `celebrationGeneric`, both added to the
+  manifest after the original prompt catalog was written.
+- **Curate the CC0 sounds** the asset-catalog doc deliberately excludes
+  from generation: `itemPickupCommon`, `shopTransaction`. (`questTurnIn`
+  and `walking` moved to generated candidates 2026-09-13 below instead —
+  Timothy rejected all of `questTurnIn`'s original CC0-direction takes,
+  and `walking` is being split into per-terrain sounds rather than
+  curated as one generic clip.)
+
+**Open audio follow-ups, raised 2026-09-13** (a second listening pass,
+after 0.33.0 shipped the picks above) — everything here is generated and
+sitting in `emoji-rpg-audio/outputs/audio-tests/`, waiting on a listening
+decision, not yet installed into this repo:
+- **`batch12-followups/sfx/`** (171 clips, 3 takes each unless noted):
+  fresh Impale/Sever/Lacerate (`abilitySwingStab/Chop/Slash`) variety;
+  **Super Scream redirected to sound human/humanoid** instead of a
+  monster roar, with separate male and female takes (4 named takes,
+  since the player character can be either) — no decision yet on
+  whether the game should pick by character gender or just rotate both;
+  a brand-new `critLayer` sound — not in `soundManifest.js` yet, meant
+  to be layered *on top of* whatever impact sound already played on a
+  crit rather than replacing it the way `hitCrit` currently does, but
+  that layering behavior needs its own code change in `playHitEffect`
+  before these are wired to anything; a shorter `battleEnd` (Timothy:
+  doesn't need to be long); more character variety for `bossBattleEnd`
+  (the existing 20 raw takes apparently don't vary enough to feel
+  distinct); an entirely different direction for `dialogClose` (the
+  existing takes "sound odd"); more variety for `levelUp`,
+  `itemPickupLegendary`, `toolCelebration`; a fresh direction for
+  `questTurnIn` (existing takes rejected outright); a celestial-healing
+  direction for `potionHeal` instead of a drinking sound; more strange/
+  vampiric takes for `potionVampiricTonic`; more fire-crackle takes for
+  `potionEmberVial`; a thorny-vine-crackle direction for
+  `potionThornbarkDraught`; and a first pass at **splitting `walking`
+  into per-terrain footsteps** (`walkingGrass`/`walkingBoat`/
+  `walkingCave` as working names — not real manifest ids yet, since
+  nothing calls `playSfx('walking')` anywhere in the game code today;
+  see the footstep-timing entry above this section before wiring any of
+  these up).
+- **`batch13-music-loops/`** (18 clips, 2 per theme): all 9 music themes
+  regenerated with the same prompts as `batch1-music` (same direction
+  Timothy already liked) but this time run through an equal-power
+  crossfade-loop post-process (`generate_music_loops.py`'s
+  `crossfade_loop()`) so the `_loop.wav` file actually loops seamlessly
+  instead of relying on the old prompt-level "loopable" text hint, which
+  is just conditioning text and guarantees nothing about the waveform's
+  start/end matching. Nothing picked or installed yet. The old
+  regular-battle-vs-boss-battle length mismatch this note used to raise
+  is now moot either way, since Web Audio's native `loop = true`
+  (already used by `playMusic` in `js/systems/audio.js`) repeats
+  whatever length is shipped indefinitely.
 
 **Still open once assets exist:**
 - Flip Timothy's own `audioBeta` flag on, playthrough with real sound,
   tune volumes/mixes — only after that does flipping the *default* to
   `true` for everyone make sense.
 - Wiring the rest of the catalog into gameplay call sites — menu nav/
-  select, dialog close, potion use, walking footsteps, parry success/
-  fail, timing-ability success/fail, discovery/cache/comeback, elite
-  encounter sting, and the area-music transitions (town/overworld/
-  battle/boss/dungeon themes on screen and encounter changes).
-  Deliberately deferred past the first plan — needs its own pass, see
-  that plan doc's own "Follow-up work" section.
+  select, dialog close, potion use, walking footsteps, timing-ability
+  success/fail, discovery/cache/comeback, elite encounter sting, and the
+  **area-music transitions** (town/overworld/dungeon themes on screen
+  changes — still entirely unwired; nothing calls `playMusic` from
+  `mapScreen.js` or anywhere else map-side). Deliberately deferred past
+  the first plan — needs its own pass, see that plan doc's own
+  "Follow-up work" section.
+  - **Partially done 2026-09-13:** the battle-side half of this now
+    exists. `battleScreen.js`'s `mount()` captures whatever music was
+    already playing (`getCurrentMusicId()`, new in
+    `js/systems/audio.js`) and crossfades into `battleTheme` or
+    `bossBattleTheme`; `endBattle()` crossfades back to the captured
+    track (or fades to silence if there was none). Both use `playMusic`'s
+    existing default 1500ms crossfade — no new fade logic was needed,
+    just call sites that were never wired to it. Currently silent in
+    practice, since no music files are shipped yet; it activates on its
+    own the moment theme tracks exist. The `playMusic` re-entrancy risk
+    noted below is now live surface area rather than purely
+    theoretical, once map-side music starts calling it too.
 - Additional sound themes (metal/symphony/chiptune raised as ideas) —
   the manifest's plumbing already supports them (drop files, add one
   manifest entry, zero code changes), but no theme besides the default
   has any real content yet.
 - `playMusic`'s re-entrancy: two overlapping `playMusic` calls before
   the first's `loadBuffer` resolves can orphan a track (caught in final
-  review, latent today since no music call site exists yet) — worth a
-  fix before the area-music-transitions item above starts.
+  review). No longer purely latent as of 2026-09-13 — `battleScreen.js`
+  now calls it at mount/endBattle — but still low-risk today since
+  there's no music asset loaded for either call to race on yet, and a
+  battle's mount/endBattle calls are seconds apart at minimum. Worth a
+  real fix before map-side area-music transitions start calling it too
+  (a battle could plausibly start again right as the previous one's
+  outro crossfade is still resolving).
 - ~~`js/data/soundManifest.js` hardcodes `'realistic'` in its path
   helpers instead of deriving from `DEFAULT_THEME`.~~ **Shipped
   2026-09-03 (0.20.1)** — `sfxPath`/`musicPath`/`SOUND_THEMES` now all
@@ -2554,6 +2651,28 @@ later; the removed design (client `saveByGoogle`/`loadByGoogle`/
 `renderGoogleSignInButton`, function `functions/api/save/google.js`) is
 recoverable from this session's history if needed, but nothing here
 depends on it existing.
+
+**Renewed interest, raised 2026-09-13** (mid-audio-session, not acted on -
+just captured for whenever this is picked up): Timothy wants Google login
+back for cross-device save, with two requirements sharper than the
+original scaffold had:
+1. **Lazy-load Google's script only after an explicit opt-in click** -
+   "I don't even want to load it unless someone wants it... Then google
+   can't track you all around the site and only if someone opts in." The
+   original scaffold's `renderGoogleSignInButton` may already have loaded
+   the Google Identity Services script unconditionally on page load (not
+   verified - it's gone, only the backlog description survives); this
+   time the button itself should be the trigger that injects the
+   `<script>` tag, not the page load.
+2. **`sub` only, still no PII** - "I don't need to log someone's email or
+   anythng. I just need to use so I can log some random id so I know it's
+   them for their save purposes." This matches what was already built
+   (`sub`-keyed KV storage) - confirms the original design's privacy
+   posture is exactly right, just needs the lazy-load piece added on top
+   when this gets rebuilt.
+
+Not started - needs its own brainstorm/plan pass when picked up, not a
+bolt-on to whatever's in flight at the time.
 
 **Also cleaned up the same session, at Timothy's request:** `ads.txt`'s
 real AdSense publisher ID (`pub-1050250477422916`) was cleared to an
