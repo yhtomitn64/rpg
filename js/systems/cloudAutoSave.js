@@ -6,28 +6,38 @@
 // isLinked rather than baking in "email" everywhere) so a future second
 // link mechanism (e.g. the shelved Google Sign-In design) could reuse
 // this same throttle/beacon machinery rather than duplicating it.
+//
+// Character-scoped as of the final whole-branch review (2026-09-14): a
+// link is only valid for the character it was created for. Switching
+// characters (Character Select -> a different slot) within the
+// 2-minute throttle window would otherwise silently push the NEW
+// character's data to the OLD character's emailed code, since `state`
+// in js/main.js is a reassignable module binding, not a snapshot - a
+// scheduled push that reads it live via a closure has no way to know
+// the character changed underneath it. The guard lives in doPush/
+// flushViaBeacon (the actual send points), not just in notifyLocalSave,
+// because a push can already be scheduled from BEFORE a character
+// switch and only discover the mismatch when it actually fires.
 import { pushEmailCode, buildEmailPushBeaconBlob, EMAIL_PUSH_URL } from './cloudSave.js';
 
 export const CLOUD_AUTO_SAVE_THROTTLE_MS = 120_000; // 2 minutes - see design doc's Write budget section
 
 let activeCode = null;
+let activeCharacterId = null;
 let pending = false;
 let lastPushAt = 0;
 let timerId = null;
-// Latest getCharacterData/fetchImpl seen across a batch of notifyLocalSave
-// calls within one throttle window - the scheduled push must read these
-// (not whatever was passed to the call that happened to create the
-// timer), or a burst would push the FIRST call's stale data instead of
-// the latest.
 let latestGetCharacterData = null;
 let latestFetchImpl;
 
-export function setActiveEmailCode(code) {
+export function setActiveEmailCode(code, characterId) {
   activeCode = code;
+  activeCharacterId = characterId;
 }
 
 export function clearActiveEmailCode() {
   activeCode = null;
+  activeCharacterId = null;
   pending = false;
   if (timerId) {
     clearTimeout(timerId);
@@ -46,12 +56,19 @@ export function getActiveEmailCode() {
 async function doPush(getCharacterData, { fetchImpl } = {}) {
   pending = false;
   lastPushAt = Date.now();
-  const result = await pushEmailCode(activeCode, getCharacterData(), { fetchImpl });
-  // Best-effort: no retry queue, no user-facing error (see design doc's
-  // Client flow section) - the next throttled cycle, or a manual
-  // "Send me a code" re-link, covers a transient failure. A dead code
-  // (expired/already redeemed) is the one case that needs a state
-  // change: stop trying to push to something that no longer exists.
+  const character = getCharacterData();
+  // The link may have been created for a different character than the
+  // one currently loaded (a character switch happened after this push
+  // was scheduled) - abort rather than overwrite the linked character's
+  // cloud copy with the wrong hero's data.
+  if (character?.characterId !== activeCharacterId) {
+    clearActiveEmailCode();
+    return;
+  }
+  // Best-effort: swallow a network-level rejection (e.g. offline) so it
+  // never surfaces as an unhandled promise rejection - the next
+  // throttled cycle, or a manual re-link, covers a transient failure.
+  const result = await pushEmailCode(activeCode, character, { fetchImpl }).catch(() => ({ ok: false, deadCode: false }));
   if (result.deadCode) clearActiveEmailCode();
 }
 
@@ -80,23 +97,27 @@ export function notifyLocalSave(getCharacterData, { fetchImpl, nowMs = Date.now(
 // actually unloading and sendBeacon is built to survive that.
 export function flushViaBeacon(getCharacterData, { sendBeaconImpl = (url, blob) => navigator.sendBeacon(url, blob) } = {}) {
   if (!isLinked() || !pending) return;
+  const character = getCharacterData();
+  if (character?.characterId !== activeCharacterId) {
+    clearActiveEmailCode();
+    return;
+  }
   pending = false;
+  lastPushAt = Date.now();
   if (timerId) {
     clearTimeout(timerId);
     timerId = null;
   }
-  sendBeaconImpl(EMAIL_PUSH_URL, buildEmailPushBeaconBlob(activeCode, getCharacterData()));
+  sendBeaconImpl(EMAIL_PUSH_URL, buildEmailPushBeaconBlob(activeCode, character));
 }
 
 // Test-only reset - clears module-level timer/flags between tests.
-// Does NOT clear activeCode - tests set/clear that explicitly via
-// setActiveEmailCode/clearActiveEmailCode to keep intent visible at the
-// call site.
+// Does NOT clear activeCode/activeCharacterId - tests set/clear those
+// explicitly via setActiveEmailCode/clearActiveEmailCode to keep intent
+// visible at the call site.
 export function __resetForTest() {
   if (timerId) clearTimeout(timerId);
   timerId = null;
   pending = false;
   lastPushAt = 0;
-  latestGetCharacterData = null;
-  latestFetchImpl = undefined;
 }

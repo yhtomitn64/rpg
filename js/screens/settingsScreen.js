@@ -9,6 +9,7 @@ import {
   startCodeTransfer,
   loadByCode,
   isValidEmailCode,
+  isValidEmailAddress,
   sendEmailCode,
   redeemEmailCode,
 } from '../systems/cloudSave.js';
@@ -148,6 +149,10 @@ async function handleLoadFromCode() {
 async function handleSendEmailCode() {
   const input = document.getElementById('cloud-email-input');
   const email = input.value.trim();
+  if (!isValidEmailAddress(email)) {
+    flashStatus('cloud-email-status', 'Enter a valid email address.');
+    return;
+  }
   flashStatus('cloud-email-status', 'Sending...');
   try {
     const { ok, code } = await sendEmailCode(email, state);
@@ -155,10 +160,10 @@ async function handleSendEmailCode() {
       flashStatus('cloud-email-status', 'Failed to send - check the address and try again.');
       return;
     }
-    setActiveEmailCode(code);
-    flashStatus('cloud-email-status', "Code sent - check your email. It'll stay live while you keep playing, up to 24 hours after you stop.");
+    setActiveEmailCode(code, state.characterId);
     input.value = '';
-    render(); // switches this block into its "linked" display
+    render(); // switches this block into its "linked" display - do this BEFORE the success flashStatus below, since render() replaces #cloud-email-status's element and flashStatus looks it up fresh each call
+    flashStatus('cloud-email-status', "Code sent - check your email. It'll stay live while you keep playing, up to 24 hours after you stop.");
   } catch {
     flashStatus('cloud-email-status', 'Failed to send - check your connection.');
   }

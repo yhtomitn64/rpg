@@ -24,5 +24,7 @@ id = "b8b1cdef39364bd09c03ff64ace10198"
 # which is plaintext and committed to this file:
 #   RESEND_API_KEY          - from a Resend (resend.com) account
 #   EMAIL_RATE_LIMIT_SECRET - any random string; only used as an HMAC key
+# Resend also requires DNS domain verification before it will deliver
+# mail — see the same "Human prerequisite" section for the details.
 # See docs/superpowers/specs/2026-09-14-email-otp-cloud-save-design.md's
 # "Human prerequisite" section.

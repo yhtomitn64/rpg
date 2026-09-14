@@ -85,6 +85,19 @@ export function isValidEmailCode(code) {
   return typeof code === 'string' && new RegExp(`^[${EMAIL_CODE_ALPHABET}]{${EMAIL_CODE_LENGTH}}$`).test(code);
 }
 
+const EMAIL_PATTERN = /^[^\s,<>()[\]:;@"]+@[^\s,<>()[\]:;@"]+\.[^\s,<>()[\]:;@"]+$/;
+
+// Mirrors functions/_shared/emailCode.js's server-side isValidEmailAddress
+// exactly (same regex/length cap) - deliberately duplicated, same as
+// isValidEmailCode above, since the client bundle and the Cloudflare
+// Functions runtime are separate deployable contexts. Used client-side
+// only as a courtesy (avoid burning the send endpoint's tight per-hour
+// rate limit on an obvious typo) - the server's own copy is the real
+// enforcement boundary.
+export function isValidEmailAddress(email) {
+  return typeof email === 'string' && email.length <= 254 && EMAIL_PATTERN.test(email);
+}
+
 export const EMAIL_SEND_URL = '/api/save/email/send';
 export const EMAIL_PUSH_URL = '/api/save/email/push';
 const EMAIL_REDEEM_URL = '/api/save/email/redeem';

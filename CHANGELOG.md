@@ -24,6 +24,26 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+### Fixed
+- **Final whole-branch review fixes for email-OTP cloud save.**
+  `cloudAutoSave.js`'s active-code link is now character-scoped
+  (`setActiveEmailCode(code, characterId)`; `doPush`/`flushViaBeacon`
+  check the current character against the linked one at send time and
+  abort + clear the link on a mismatch) - previously, switching
+  characters within the 2-minute auto-save throttle window could
+  silently push the new character's data to the old character's
+  emailed code. Also: `settingsScreen.js`'s "Code sent" success message
+  is no longer wiped by the immediately-following `render()` call
+  (reordered); added a client-side email-shape pre-check
+  (`isValidEmailAddress`, `js/systems/cloudSave.js`) to avoid burning
+  the send endpoint's rate limit on typo'd addresses; added missing
+  jsdom tests for the "Email me a code" Settings block
+  (`tests/settingsScreenDom.test.js`); documented Resend's DNS
+  domain-verification prerequisite and corrected the spec's
+  unimplemented `xxxx-xxxx` code-grouping claim
+  (`docs/superpowers/specs/2026-09-14-email-otp-cloud-save-design.md`,
+  `wrangler.toml`).
+
 ## [0.38.0] - 2026-09-14
 
 ### Added
