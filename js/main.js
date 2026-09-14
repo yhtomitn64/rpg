@@ -74,6 +74,7 @@ import { getMiniDungeonEntrance, isTreasureTaken, markTreasureTaken, rollMiniDun
 import { getBossTierStats, pickBossReturnFlavor, shouldPromptForRematch, resolveBattleXp, resolveBossTierAfterWin, getClearedTierList } from './systems/bossTiers.js';
 import * as bossPromptScreen from './screens/bossPromptScreen.js';
 import { listSlots, createSlot, deleteSlot, touchSlot, migrateLegacySave, importSlot, upsertSlot, findSlotByCharacterId } from './systems/saveSlots.js';
+import { notifyLocalSave, flushViaBeacon } from './systems/cloudAutoSave.js';
 import { applyDebugCharacterFromUrl, isNoEncountersDebugFlagSet } from './systems/debugCharacters.js';
 import { canStartNgPlus, getNgPlusCombatOverrides, getNgPlusRewardMultiplier, scaleDropTable, resetWorldForNgPlus, migrateNgPlusToolCarryover } from './systems/ngPlus.js';
 import { pickVariantOverrides } from './systems/monsterVariants.js';
@@ -329,6 +330,7 @@ function persist() {
   persistPending = false;
   saveState(state, activeSlotId);
   touchSlot(activeSlotId, { level: state.player.level, ngPlusCycle: state.ngPlusCycle });
+  notifyLocalSave(() => state);
 }
 
 // For the high-frequency movement path only (see comment above) - batches
@@ -349,6 +351,7 @@ function schedulePersist() {
 // the listeners registered below).
 function flushPendingPersist() {
   if (persistPending) persist();
+  flushViaBeacon(() => state);
 }
 
 document.addEventListener('visibilitychange', () => {
