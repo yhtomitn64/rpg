@@ -1,5 +1,22 @@
 # Google cross-device cloud save — design
 
+**Shelved 2026-09-14, same session, before implementation started.**
+Discussing this design out loud surfaced an email-OTP alternative
+(user-raised) that meets the same goals — opt-in, no PII, standing
+cross-device transfer — with real advantages over this one: zero
+third-party script ever loads in the browser (this design's whole
+"lazy-load Google's script" section becomes unnecessary), no OAuth
+Console setup, no `aud`-verification correctness burden, and a much
+smaller/cheaper abuse surface to defend (no anonymous script can
+forge a Google-issued token, whereas here the risk is contained to
+per-IP/per-recipient throttling on a `send` endpoint). Implemented
+instead: `docs/superpowers/specs/2026-09-14-email-otp-cloud-save-design.md`.
+This document is kept for its own sake (nothing here shipped) and as
+a reference if Google Sign-In is ever revisited as an *additional*
+option later — see that spec's own note on the subject.
+
+---
+
 Raised 2026-09-14, picking up the "renewed interest" thread from the
 [Cross-device save sync](../BACKLOG.md#google-cross-device-save-2026-09-14)
 backlog entry (2026-09-13). Adds an optional, sign-in-based alternative
