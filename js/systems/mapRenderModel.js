@@ -52,6 +52,15 @@ export const SIGN_LABEL_BY_TILE = new Map([
 // and at the auto-sealed edge.
 export const RANDOM_SIZE_OBSTACLES = new Set([TILES.tree, TILES.mountain, TILES.mountainCache, TILES.mountainWall, TILES.thicket, TILES.thicketCache]);
 
+// caveWall wants the exact same size-variance treatment as the obstacles
+// above ("make the white rock looking emoji bigger... same logic as trees/
+// mountains") but is kept in its own set rather than folded into
+// RANDOM_SIZE_OBSTACLES: isGrassBackground below treats every member of
+// that set as sitting on grass, which is true for every entry in it but
+// would be wrong for caveWall - it sits on cave floor, not grass, and
+// should keep painting the plain GROUND_COLOR_DEFAULT underneath it.
+export const CAVE_RANDOM_SIZE_OBSTACLES = new Set([TILES.caveWall]);
+
 // Fixed real pixel size for every tile - the viewport's own CSS size
 // (.map-viewport in css/styles.css) then determines how many whole tiles
 // fit, which is what makes a smaller window/screen naturally show less of

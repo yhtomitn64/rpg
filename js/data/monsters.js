@@ -291,7 +291,7 @@ export const MONSTERS = {
   //   superBossOne's stats above are exactly what a real encounter always
   //   uses, never +/-15% varied.
   superBossOne: {
-    id: 'superBossOne', name: 'Super Boss One [PLACEHOLDER NAME]', emoji: '💀',
+    id: 'superBossOne', name: 'Super Boss One', emoji: '💀',
     hp: 3000, attack: 55, defense: 24, speed: 14,
     xp: 500, goldRange: [150, 220],
     dropTable: [{ itemId: 'ferocityFang', chance: 1, tier: 'apex' }],
@@ -313,7 +313,7 @@ export const MONSTERS = {
   // attack than superBossOne's own NG+1-scaled 6000/69/30, per this pass's
   // "shorter, harder-hitting" design goal.
   superBossTwo: {
-    id: 'superBossTwo', name: 'Super Boss Two [PLACEHOLDER NAME]', emoji: '👹',
+    id: 'superBossTwo', name: 'Super Boss Two', emoji: '👹',
     hp: 1100, attack: 60, defense: 21, speed: 14,
     xp: 650, goldRange: [180, 260],
     dropTable: [{ itemId: 'parryMasterRing', chance: 1, tier: 'apex' }],
@@ -346,7 +346,7 @@ export const MONSTERS = {
   // 12000/86/38 (the exact fight Timothy beat at 100% HP doing "like 2
   // damage"), deliberately far less HP, comparable attack.
   superBossThree: {
-    id: 'superBossThree', name: 'Super Boss Three [PLACEHOLDER NAME]', emoji: '🧟',
+    id: 'superBossThree', name: 'Super Boss Three', emoji: '🧟',
     hp: 640, attack: 60, defense: 19, speed: 15,
     xp: 850, goldRange: [220, 320],
     dropTable: [{ itemId: 'unshakenCharm', chance: 1, tier: 'apex' }],
@@ -383,7 +383,7 @@ export const MONSTERS = {
   // Base numbers now produce, at NG+3 (hp x8, atk/def x1.953125):
   // effective hp 3840 / atk 113 / def 33.
   superBossFour: {
-    id: 'superBossFour', name: 'Super Boss Four [PLACEHOLDER NAME]', emoji: '👺',
+    id: 'superBossFour', name: 'Super Boss Four', emoji: '👺',
     hp: 480, attack: 58, defense: 17, speed: 15,
     xp: 1100, goldRange: [280, 400],
     dropTable: [{ itemId: 'stormringOfHaste', chance: 1, tier: 'apex' }],
@@ -432,7 +432,7 @@ export const MONSTERS = {
   // Base numbers now produce, at NG+4 (hp x16, atk/def x2.44140625):
   // effective hp 6496 / atk 117 / def 39.
   superBossFive: {
-    id: 'superBossFive', name: 'Super Boss Five [PLACEHOLDER NAME]', emoji: '🐲',
+    id: 'superBossFive', name: 'Super Boss Five', emoji: '🐲',
     hp: 406, attack: 48, defense: 16, speed: 16,
     xp: 1400, goldRange: [350, 500],
     dropTable: [{ itemId: 'guardiansLastStand', chance: 1, tier: 'apex' }],

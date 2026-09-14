@@ -24,6 +24,46 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.37.1] - 2026-09-14
+
+### Added
+- **Superboss dungeons now have wandering encounters.** All 5
+  (`js/maps/superBosses/`) shipped with `monsterTable: []` and
+  `encounterChance: 0` - encounters were fully disabled, not merely rare.
+  Each now reuses its own entrance zone's monster table (per
+  `js/data/superBosses.js`'s `screenId`) at the same 0.2 rate the
+  mini-dungeon variants use.
+
+### Changed
+- **Removed `[PLACEHOLDER NAME]` from the 5 superboss names and the
+  Guardian's Last Stand item** - the names were already final, just never
+  had the marker cleared.
+- **`caveWall` (🪨) now gets the same randomized 100-150% size and
+  row-bleed treatment as trees/mountains**, via a new
+  `CAVE_RANDOM_SIZE_OBSTACLES` set kept separate from `RANDOM_SIZE_OBSTACLES`
+  (that set also controls the grass-background check, which a cave wall
+  shouldn't trigger).
+- **`caveFloor` now renders blank, the same trick `water`'s
+  `variants: ['']` already uses**, instead of painting a visible `⬛` glyph
+  on every tile. Raised live via a screenshot comparison to the outdoor
+  wilderness: grass reads as one continuous open field because it's mostly
+  blank variants with trees/mountains as the only visible objects on top;
+  caveFloor's own glyph was breaking that same effect for cave dungeons.
+
+### Fixed
+- **Super Scream's chosen sound never played.** It's a self-buff
+  (`type: 'buff'` in `js/systems/abilities.js`), and that whole branch in
+  `playerUseAbility` (`js/screens/battleScreen.js`) returned before ever
+  reaching the swing-sound code, which only exists on the damage-dealing
+  branches. The mapping in `swingSoundIdFor` was correct; it just never got
+  called. Only ability of this type today, so the fix is scoped to it.
+- **A door or guardian placed inside a cave dungeon painted a grass-green
+  background**, because `exit`/`guardian` are unconditionally treated as
+  grass-context landmarks (correct for a town gate or dungeon guardian
+  standing on real grass). `js/systems/mapDrawList.js` now checks the
+  tile's actual neighbors and falls back to the cave's own dark default
+  when it's genuinely surrounded by cave floor/wall.
+
 ## [0.37.0] - 2026-09-13
 
 ### Added

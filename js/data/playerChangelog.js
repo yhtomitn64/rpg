@@ -6,6 +6,17 @@
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
   {
+    version: '0.37.1',
+    date: '2026-09-14',
+    highlights: [
+      'Added: superboss dungeons now have wild monsters wandering them instead of being completely empty on the way to the boss.',
+      'Changed: cave dungeon floors now look like one open area instead of a checkerboard, and the cave wall rocks come in bigger, more varied sizes - same style trees and mountains already had outside.',
+      'Changed: the superboss names are final now, no more "[PLACEHOLDER NAME]" tag.',
+      'Fixed: Super Scream\'s sound effect now actually plays - it was picked correctly but never wired up.',
+      'Fixed: a door or boss room placed inside a cave dungeon no longer shows an out-of-place green background.',
+    ],
+  },
+  {
     version: '0.37.0',
     date: '2026-09-13',
     highlights: [

@@ -174,6 +174,27 @@ test('mapDrawList - landmarks and markers', async (t) => {
     assert.ok(ground.every((op) => op.color === GROUND_COLOR_GRASS));
   });
 
+  // Raised live with a screenshot: "door on green looks bad should have no
+  // bg" - a superboss dungeon's exit tile, surrounded by cave floor/wall,
+  // still painted the grass-green GRASS_CONTEXT_MARKERS default (correct
+  // for the same tile sitting on grass outside a dungeon, wrong here).
+  // Same tile-type ambiguity applies to a cave dungeon's own guardian
+  // marker, so both are checked - contrast with the grass-context guardian
+  // test just above, which must keep painting green.
+  await t.test('exit and guardian markers use the cave default when surrounded by cave tiles, not grass', async () => {
+    const maps = { cave: {
+      id: 'cave', legend: { '#': 'caveWall', E: 'exit', '.': 'caveFloor', G: 'guardian' },
+      rows: ['####', '#E.#', '#.G#', '####'], neighbors: {}, monsterTable: [], encounterChance: 0, cacheChance: 0,
+    } };
+    const drawList = await mountMap(maps.cave, maps, baseState({ position: { x: 2, y: 1 }, map: 'cave' }));
+    const exitGround = opsAt(drawList, 1, 1).find((op) => op.op === 'ground');
+    const guardianGround = opsAt(drawList, 2, 2).find((op) => op.op === 'ground');
+    assert.equal(exitGround.color, GROUND_COLOR_DEFAULT);
+    assert.notEqual(exitGround.color, GROUND_COLOR_GRASS);
+    assert.equal(guardianGround.color, GROUND_COLOR_DEFAULT);
+    assert.notEqual(guardianGround.color, GROUND_COLOR_GRASS);
+  });
+
   await t.test('all 4 town features get a signpost label, and nothing else does', async () => {
     const drawList = await mountTown(baseState());
     const labels = drawList.ops.filter((op) => op.op === 'label').map((op) => op.text).sort();
@@ -190,6 +211,47 @@ test('mapDrawList - landmarks and markers', async (t) => {
     assert.equal(glyph.anchor, 'bottom', 'bottom anchoring is what makes a tall obstacle overlap the row above');
     assert.equal(glyph.sizePx, FULL_SQUARE_PX * (1 + hash01(1, 1) * OBSTACLE_MAX_EXTRA));
     assert.ok(glyph.sizePx >= FULL_SQUARE_PX && glyph.sizePx <= FULL_SQUARE_PX * 1.5);
+  });
+
+  // Raised live: "make the white rock looking emoji bigger? Same logic as
+  // trees/mountains with different sizes and stuff." caveWall gets the same
+  // size-variance treatment via its own CAVE_RANDOM_SIZE_OBSTACLES set
+  // (mapRenderModel.js) rather than being folded into RANDOM_SIZE_OBSTACLES
+  // - that set also controls the grass-background check, and a cave wall
+  // sits on cave floor, not grass (see the exit/guardian test above for the
+  // same grass-vs-cave distinction).
+  await t.test('caveWall gets the same size variance as trees/mountains, without picking up a grass background', async () => {
+    const maps = { cave: {
+      id: 'cave', legend: { '.': 'caveFloor', '#': 'caveWall' },
+      rows: ['...', '.#.', '...'], neighbors: {}, monsterTable: [], encounterChance: 0, cacheChance: 0,
+    } };
+    const drawList = await mountMap(maps.cave, maps, baseState({ position: { x: 0, y: 0 }, map: 'cave' }));
+    const glyph = glyphsAt(drawList, 1, 1)[0];
+    assert.equal(glyph.anchor, 'bottom');
+    assert.equal(glyph.sizePx, FULL_SQUARE_PX * (1 + hash01(1, 1) * OBSTACLE_MAX_EXTRA));
+    const ground = opsAt(drawList, 1, 1).find((op) => op.op === 'ground');
+    assert.equal(ground.color, GROUND_COLOR_DEFAULT);
+    assert.notEqual(ground.color, GROUND_COLOR_GRASS);
+  });
+
+  // Raised live with a screenshot comparison: caveFloor's own '⬛' emoji
+  // painted a visible black square on every floor tile, breaking the "one
+  // big open area" look grass gets from rendering blank (its own variants
+  // are mostly '') - "I want the caves like that with one big gray area you
+  // walk in... and then the whiter stones on top of that." caveFloor now
+  // has a single blank variant, same trick as water's own `variants: ['']`.
+  await t.test('caveFloor renders blank, same as grass/water, so the ground color reads as one open area', async () => {
+    const maps = { cave: {
+      id: 'cave', legend: { '.': 'caveFloor' },
+      rows: ['.....', '.....', '.....', '.....', '.....'], neighbors: {}, monsterTable: [], encounterChance: 0, cacheChance: 0,
+    } };
+    // The interior, not an edge/corner cell - screens auto-seal their outer
+    // border with a mountain-wall marker once stitched into the world grid
+    // (see mountainWall's own comment in mapRenderModel.js), which would
+    // otherwise paint over this tiny map's own caveFloor at its edges.
+    const drawList = await mountMap(maps.cave, maps, baseState({ position: { x: 0, y: 0 }, map: 'cave' }));
+    const glyph = glyphsAt(drawList, 2, 2)[0];
+    assert.equal(glyph, undefined, 'a blank-variant tile should emit no glyph op at all');
   });
 });
 

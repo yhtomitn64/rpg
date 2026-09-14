@@ -31,7 +31,14 @@ export const TILES = {
   treeGapEast: { emoji: '', walkable: true, encounter: false, action: 'exitTownEast', description: 'A break in the trees' },
   treeGapWest: { emoji: '', walkable: true, encounter: false, action: 'exitTownWest', description: 'A break in the trees' },
   boss: { emoji: '🐉', walkable: true, encounter: false, action: 'bossBattle', description: 'The dragon awaits' },
-  caveFloor: { emoji: '⬛', walkable: true, encounter: true, description: 'Cave floor — wild monsters may appear' },
+  // Blank variant - same trick as water above (and grass's own mostly-blank
+  // variants): renders as a solid ground-color background instead of a
+  // per-tile black-square glyph, so a cave's whole walkable floor reads as
+  // one contiguous open area with caveWall's rocks sitting on top of it,
+  // matching how grass reads as one open field with trees/mountains on top.
+  // Raised live with a screenshot: "I want the caves like that with one big
+  // gray area you walk in... and then the whiter stones on top of that."
+  caveFloor: { emoji: '⬛', walkable: true, encounter: true, description: 'Cave floor — wild monsters may appear', variants: [''] },
   caveWall: { emoji: '🪨', walkable: false, encounter: false, description: 'Cave wall — blocks the way' },
   cavePool: { emoji: '💧', walkable: false, encounter: false, description: 'Underground pool — blocks the way' },
   miniDungeonEntrance: { emoji: '🪜', walkable: true, encounter: false, action: 'exitMiniDungeon', description: 'Ladder — climb back to the surface' },
