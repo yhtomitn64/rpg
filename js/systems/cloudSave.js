@@ -74,3 +74,71 @@ export async function loadByCode(code, { fetchImpl = globalThis.fetch } = {}) {
   const body = await response.json();
   return body.data ?? null;
 }
+
+// Email one-time-code cross-device save - a standing alternative to the
+// 60-second code-transfer flow above. See
+// docs/superpowers/specs/2026-09-14-email-otp-cloud-save-design.md.
+const EMAIL_CODE_ALPHABET = 'abcdefghjkmnpqrstuvwxyz23456789';
+const EMAIL_CODE_LENGTH = 8;
+
+export function isValidEmailCode(code) {
+  return typeof code === 'string' && new RegExp(`^[${EMAIL_CODE_ALPHABET}]{${EMAIL_CODE_LENGTH}}$`).test(code);
+}
+
+export const EMAIL_SEND_URL = '/api/save/email/send';
+export const EMAIL_PUSH_URL = '/api/save/email/push';
+const EMAIL_REDEEM_URL = '/api/save/email/redeem';
+
+// Requests a fresh code: writes `data` under it server-side (24h TTL)
+// and emails the code to `email`. Returns the code to the caller too -
+// the originating device doesn't need to check its own email, since it
+// already has the code back synchronously and uses it to keep pushing
+// (js/systems/cloudAutoSave.js).
+export async function sendEmailCode(email, data, { fetchImpl = globalThis.fetch } = {}) {
+  const response = await fetchImpl(EMAIL_SEND_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, data }),
+  });
+  if (!response.ok) return { ok: false, code: null };
+  const body = await response.json();
+  return { ok: true, code: body.code };
+}
+
+// Refreshes an already-issued code's data (and its 24h TTL). `deadCode`
+// is true only for a 404 - the code doesn't exist any more (expired or
+// already redeemed) - which callers should treat as "stop pushing to
+// this code," not as a transient failure to retry.
+export async function pushEmailCode(code, data, { fetchImpl = globalThis.fetch } = {}) {
+  const response = await fetchImpl(EMAIL_PUSH_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, data }),
+  });
+  if (response.status === 404) return { ok: false, deadCode: true };
+  return { ok: response.ok, deadCode: false };
+}
+
+// Returns the saved data for a code (and consumes it server-side - a
+// second call for the same code returns null too), or null if nothing
+// is live under it. Mirrors loadByCode's null-on-404 contract above.
+export async function redeemEmailCode(code, { fetchImpl = globalThis.fetch } = {}) {
+  const response = await fetchImpl(EMAIL_REDEEM_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`Email cloud load failed: ${response.status}`);
+  const body = await response.json();
+  return body.data ?? null;
+}
+
+// Builds the payload for navigator.sendBeacon (used by the exit-time
+// auto-save flush, js/systems/cloudAutoSave.js) instead of pushEmailCode's
+// fetch call - sendBeacon needs a raw Blob body, not a fetch options
+// object, and is built to survive the page already unloading (unlike
+// fetch, which can be cancelled mid-flight in that situation).
+export function buildEmailPushBeaconBlob(code, data) {
+  return new Blob([JSON.stringify({ code, data })], { type: 'application/json' });
+}
