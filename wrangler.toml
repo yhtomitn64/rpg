@@ -16,3 +16,13 @@ compatibility_date = "2026-09-09"
 [[kv_namespaces]]
 binding = "SAVES"
 id = "b8b1cdef39364bd09c03ff64ace10198"
+
+# Two secrets are required for functions/api/save/email/* (the email-OTP
+# cloud save feature) and must be set via `wrangler pages secret put
+# <NAME>` (or the Cloudflare Pages dashboard's environment variables,
+# marked "Secret" not "Plaintext") - NEVER added above as a [vars] entry,
+# which is plaintext and committed to this file:
+#   RESEND_API_KEY          - from a Resend (resend.com) account
+#   EMAIL_RATE_LIMIT_SECRET - any random string; only used as an HMAC key
+# See docs/superpowers/specs/2026-09-14-email-otp-cloud-save-design.md's
+# "Human prerequisite" section.
