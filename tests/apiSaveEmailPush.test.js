@@ -46,7 +46,7 @@ test('push rejects a malformed code without touching KV', async () => {
   const request = fakeRequest({ code: 'not-a-valid-code!!', data: { level: 2 } });
   const response = await onRequestPost({ request, env });
   assert.equal(response.status, 400);
-  assert.equal(kv.store.size, 0);
+  assert.equal(kv.store.has('emailcode:not-a-valid-code!!'), false);
 });
 
 test('push rate-limits per IP, isolated from send/redeem', async () => {

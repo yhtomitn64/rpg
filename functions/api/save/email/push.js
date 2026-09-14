@@ -21,6 +21,13 @@ function jsonResponse(body, status = 200) {
 }
 
 export async function onRequestPost({ request, env }) {
+  // Generous relative to the 2-minute client throttle (a couple of
+  // devices pushing, plus headroom) - isolated from send/redeem's own
+  // counters via keyPrefix.
+  if (!(await checkRateLimit(env, request, { max: 10, keyPrefix: 'email-push-ip' }))) {
+    return rateLimitedResponse();
+  }
+
   const text = await request.text();
   if (text.length > MAX_BODY_BYTES) return jsonResponse({ error: 'save too large' }, 413);
   let parsed;
@@ -32,13 +39,6 @@ export async function onRequestPost({ request, env }) {
   const { code, data } = parsed ?? {};
   if (!isValidEmailCode(code)) return jsonResponse({ error: 'invalid code' }, 400);
   if (!data || typeof data !== 'object') return jsonResponse({ error: 'expected { code, data }' }, 400);
-
-  // Generous relative to the 2-minute client throttle (a couple of
-  // devices pushing, plus headroom) - isolated from send/redeem's own
-  // counters via keyPrefix.
-  if (!(await checkRateLimit(env, request, { max: 10, keyPrefix: 'email-push-ip' }))) {
-    return rateLimitedResponse();
-  }
 
   const existing = await env.SAVES.get(`emailcode:${code}`);
   if (existing === null) return jsonResponse({ error: 'not found' }, 404);
