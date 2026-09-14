@@ -110,7 +110,7 @@ export const superBossFourMap = {
   startPosition: { x: 0, y: 0 },
   // Was 0/[] - see superBossOneDungeon.js's own comment. Reuses north's
   // monster table (this dungeon's entrance zone, superBosses.js).
-  encounterChance: 0.2,
+  encounterChance: 0.07,
   cacheChance: 0,
   monsterTable: ['boar', 'bat', 'snake', 'goblin', 'frog'],
   guardianMonsterId: 'superBossFour',

@@ -103,9 +103,9 @@ test("every mini-dungeon variant's startPosition is its entrance/exit tile", () 
   }
 });
 
-test('every mini-dungeon variant uses the orc/wraith monster table at 0.2 encounter chance', () => {
+test('every mini-dungeon variant uses the orc/wraith monster table at 0.07 encounter chance', () => {
   for (const map of Object.values(VARIANTS)) {
     assert.deepEqual(map.monsterTable, ['orc', 'wraith']);
-    assert.equal(map.encounterChance, 0.2);
+    assert.equal(map.encounterChance, 0.07);
   }
 });

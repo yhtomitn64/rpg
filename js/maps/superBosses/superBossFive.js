@@ -61,7 +61,7 @@ export const superBossFiveMap = {
   // Was 0/[] - see superBossOneDungeon.js's own comment. Reuses
   // westSouthwest's monster table (this dungeon's entrance zone,
   // superBosses.js).
-  encounterChance: 0.2,
+  encounterChance: 0.07,
   cacheChance: 0,
   monsterTable: ['direWolf', 'spider', 'scorpion'],
   guardianMonsterId: 'superBossFive',

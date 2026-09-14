@@ -13,10 +13,13 @@ export const MAX_UPGRADE_LEVEL = 3;
 // single NG+ cycle climb as far as gold allowed - Timothy's own NG+0 save
 // reached ironSword +8. A flat permanent cap was too limiting once NG+
 // existed, so the cap is back but now rises with ngPlusCycle instead of
-// staying fixed at MAX_UPGRADE_LEVEL forever - each cycle's monsters get
-// ~25% tougher (NG_PLUS_COMBAT_MULTIPLIER), and one upgrade level is worth
-// +25% of an item's base stat, so +2/cycle gives a bit more headroom than
-// that growth alone rather than exactly tracking it.
+// staying fixed at MAX_UPGRADE_LEVEL forever - each cycle's monsters got
+// ~25% tougher at the time (NG_PLUS_COMBAT_MULTIPLIER), and one upgrade
+// level is worth +25% of an item's base stat, so +2/cycle gave a bit more
+// headroom than that growth alone rather than exactly tracking it.
+// NG_PLUS_COMBAT_MULTIPLIER itself was raised well past 25%/cycle on
+// 2026-09-14 (see its own comment in ngPlus.js) without touching this step -
+// worth revisiting if gear can no longer keep pace, but not done blind.
 export const UPGRADE_CAP_STEP_PER_CYCLE = 2;
 
 export function getMaxUpgradeLevel(ngPlusCycle) {

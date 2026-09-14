@@ -24,6 +24,26 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.37.2] - 2026-09-14
+
+### Changed
+- **Encounter rate cut ~60-65% everywhere** - "way too many battles... if
+  folks want to grind they can just run back and forth." Wilderness zones
+  went from 0.1/0.15 to 0.04/0.05, the main dungeon from 0.25 to 0.09,
+  mini-dungeons and the 5 superboss dungeons (0.2, just added this same
+  session in 0.37.1) down to 0.07.
+- **NG+ monsters scale harder per cycle.** `NG_PLUS_HP_MULTIPLIER` 2→3,
+  `NG_PLUS_COMBAT_MULTIPLIER` 1.25→2 (`js/systems/ngPlus.js`), driven by
+  real telemetry showing a NG+2 character trivializing every fight
+  (including superbosses and tool guardians, which share this same
+  scaling) after two days of in-cycle leveling that had been a genuine
+  fight just before. Affects regular monsters, tool guardians, and
+  superbosses at once, since all three share `getNgPlusCombatOverrides`.
+  Doesn't fix the actual root cause (monster stats scale off `ngPlusCycle`
+  alone, with nothing accounting for in-cycle level/gear growth) - see
+  `docs/superpowers/BACKLOG.md`'s Pacing/progression section for the full
+  data and the real fix this is a stopgap for.
+
 ## [0.37.1] - 2026-09-14
 
 ### Added

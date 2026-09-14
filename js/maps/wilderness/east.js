@@ -30,7 +30,7 @@ export const eastMap = {
   legend: LEGEND,
   rows: ROWS,
   startPosition: { x: 14, y: 10 },
-  encounterChance: 0.1,
+  encounterChance: 0.04,
   cacheChance: 0.03,
   miniDungeonChance: 0.005,
   monsterTable: ['boar', 'bat', 'snake', 'goblin', 'frog'],
