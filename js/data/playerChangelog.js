@@ -6,6 +6,14 @@
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
   {
+    version: '0.37.2',
+    date: '2026-09-14',
+    highlights: [
+      'Changed: way fewer random battles everywhere - if you want to grind, running back and forth will still find fights, but the world won\'t throw one at you constantly.',
+      'Changed: NG+ monsters (regular, tool guardians, and superbosses alike) hit harder and have more HP per cycle than before - they were falling way behind a well-built character.',
+    ],
+  },
+  {
     version: '0.37.1',
     date: '2026-09-14',
     highlights: [

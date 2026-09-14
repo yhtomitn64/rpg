@@ -21,7 +21,7 @@ export const superBossOneDungeonMap = {
   // farSoutheast's own monster table (superBosses.js's screenId for this
   // dungeon's entrance) rather than inventing new content, same rate as
   // the mini-dungeon variants (js/maps/miniDungeons/).
-  encounterChance: 0.2,
+  encounterChance: 0.07,
   cacheChance: 0,
   monsterTable: ['direWolf', 'spider', 'scorpion'],
   guardianMonsterId: 'superBossOne',

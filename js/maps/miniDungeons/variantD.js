@@ -23,6 +23,6 @@ export const miniDungeonVariantD = {
   legend: LEGEND,
   rows: ROWS,
   startPosition: { x: 1, y: 1 },
-  encounterChance: 0.2,
+  encounterChance: 0.07,
   monsterTable: ['orc', 'wraith'],
 };

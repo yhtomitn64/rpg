@@ -30,7 +30,7 @@ export const northwestMap = {
   legend: LEGEND,
   rows: ROWS,
   startPosition: { x: 14, y: 12 },
-  encounterChance: 0.15,
+  encounterChance: 0.05,
   cacheChance: 0.03,
   miniDungeonChance: 0.005,
   monsterTable: ['direWolf', 'spider', 'scorpion'],

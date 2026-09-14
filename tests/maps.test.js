@@ -497,6 +497,6 @@ test('all 16 outer-ring screens from the 5x5 expansion use the corner monster ti
   for (const id of outerRingIds) {
     const map = WILDERNESS[id];
     assert.deepEqual(map.monsterTable, ['direWolf', 'spider', 'scorpion'], `${id} monsterTable should match the corner tier`);
-    assert.equal(map.encounterChance, 0.15, `${id} encounterChance should be 0.15`);
+    assert.equal(map.encounterChance, 0.05, `${id} encounterChance should be 0.05`);
   }
 });

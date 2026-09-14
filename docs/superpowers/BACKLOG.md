@@ -765,6 +765,58 @@ walk-back of the upgrade-level uncap" item above (Multi-zone progression
 section) - unlimited smith upgrades are plausibly part of the same
 "too strong too fast" complaint.
 
+**Update (2026-09-14), same complaint recurring at NG+2, with real
+telemetry this time (`~/Downloads/playlog1.txt`, a `getBufferAsJsonl()`
+export):** Timothy: "even the regular monsters need like 4x hitpoints and
+10x damage at this point... super bosses probably need to be harder and
+tool bosses in NG+ now my dps is like 100+ haha." The log data pins down
+exactly what changed and what didn't:
+- **2026-09-12, NG+2, level 18-19:** superBossOne fights took 98-180s,
+  including one real loss (`hpPercentRemaining: 0`) before an eventual win.
+  Genuinely dangerous - the pre-existing NG+ curve was working as intended
+  *at the level a player reaches NG+2 with*.
+- **2026-09-14, same NG+2 cycle, level 20-22 (two days of continued
+  leveling/gearing within the same cycle):** every regular fight and
+  superBossFive itself ended at `hpPercentRemaining: 1` (zero damage
+  taken back), superBossFive done in 16.9s at 100 DPS, tool guardians
+  (boat/portal) the same.
+- **The actual bug:** `getNgPlusCombatOverrides` (`js/systems/ngPlus.js`)
+  scales purely off `ngPlusCycle` - nothing in it (or anywhere upstream,
+  `handleEncounter` in `js/main.js`) accounts for in-cycle level/gear
+  growth. A player who keeps leveling *within* a cycle inevitably outgrows
+  it, no matter how the base curve is tuned, because the curve has no way
+  to know that's happening.
+- **Shipped same session:** `NG_PLUS_HP_MULTIPLIER` 2→3,
+  `NG_PLUS_COMBAT_MULTIPLIER` 1.25→2 (see that constant's own comment in
+  ngPlus.js for the full reasoning, including why the literal "4x/10x at
+  cycle 2" numbers weren't solved for directly - `simulate-balance.js
+  --cycle-sweep superBossOne` showed a `COMBAT_MULTIPLIER` of 2.5 already
+  collapsing NG+1's simulated ceiling-build win rate from 83% to 0%, too
+  sharp for a cycle that wasn't the one complained about). This raises
+  every NG+ cycle proportionally (regular monsters, tool guardians, and
+  superbosses all share this one function), which is a real, felt
+  increase but **not a fix for the actual bug above** - it just raises the
+  floor a level-18-19 NG+2 player meets, buying time until the next
+  over-leveling cycle repeats the same complaint.
+- **Worth knowing before the next round:** `simulate-balance.js`'s own
+  cycle-sweep numbers don't fully agree with real play here either - it
+  already predicted 0% win at NG+2 ceiling (L18) under the *old* numbers,
+  while real play at L18-19 was winning (with real losses along the way,
+  not literally impossible). Its synthetic "ceiling" build is apparently
+  weaker than what a real engaged player achieves - useful for *relative*
+  before/after comparison, not as an absolute ground truth for whether a
+  given change makes something literally unbeatable.
+- **The real fix, not attempted this session:** scale monster stats
+  against player level too, not `ngPlusCycle` alone - e.g. against how far
+  past the cycle's own "expected" level (`simulate-balance.js`'s own
+  `CYCLE_SWEEP_LEVELS.start`/`.ceiling` table already has a candidate
+  anchor) the player actually is. That's a real design change to
+  `getNgPlusCombatOverrides`'s signature and every call site, not a live
+  balance-tweak; needs its own pass rather than being bolted on reactively.
+  Also connects to the still-open `UPGRADE_CAP_STEP_PER_CYCLE` comment in
+  `js/systems/inventory.js` (calibrated against the *old* 25%/cycle
+  combat growth, now stale) - worth revisiting together.
+
 ## Multi-zone progression (big idea — needs its own design pass)
 
 Several related ideas raised together about giving zones 2/3/4 distinct

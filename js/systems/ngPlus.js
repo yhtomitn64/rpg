@@ -1,7 +1,36 @@
 import { ITEMS } from '../data/items.js';
 
-export const NG_PLUS_HP_MULTIPLIER = 2;
-export const NG_PLUS_COMBAT_MULTIPLIER = 1.25;
+// Raised from 2/1.25 on 2026-09-14 against real telemetry, not a guess: a
+// real NG+2 level-20+ character (docs/superpowers/BACKLOG.md has the full
+// numbers) was one-shotting regular fights and beating superBossFive in
+// under 17s at full HP, while the *same* NG+2 cycle at level 18-19 two days
+// earlier had been a real fight (superBossOne took 98-180s and was lost
+// once). The old curve scales purely off ngPlusCycle with nothing
+// accounting for in-cycle level/gear growth, so a player who keeps
+// leveling within a cycle outgrows it fast - raised live: "even the
+// regular monsters need like 4x hitpoints and 10x damage at this point...
+// super bosses probably need to be harder and tool bosses in NG+."
+// COMBAT_MULTIPLIER was the more lopsided of the two (1.25 vs HP's 2), so
+// it moves further - both monster categories (regular monsters, tool
+// guardians, superbosses) share this same function, so one change reaches
+// all three at once. Not re-solved to hit the literal "4x/10x" numbers
+// exactly at cycle 2 - doing that by cranking the exponent base would
+// compound the SAME base every cycle (NG+ is intentionally endless, no
+// ceiling), and squaring the base to land exactly on cycle 2 would make
+// cycle 4+ absurd, and simulate-balance.js --cycle-sweep showed a
+// COMBAT_MULTIPLIER of 2.5 already dropping NG+1's simulated ceiling build
+// from 83% win to 0% - too sharp a jump on the very first cycle for how
+// modest the actual ask was there. This is a real, felt increase (at
+// cycle 2: HP 9x base instead of 4x, combat 4x instead of 1.5625x) without
+// chasing an exact number derived from one data point. Real telemetry
+// (see BACKLOG.md) already showed the pre-change numbers as reasonably
+// tuned for a player at the cycle's own expected level - the actual bug is
+// that nothing scales with in-cycle level/gear growth at all, so this is a
+// stopgap for "too easy once over-leveled," not a full fix; that needs
+// monster stats to factor in player level too, a bigger change than a
+// live balance tweak should attempt without its own design pass.
+export const NG_PLUS_HP_MULTIPLIER = 3;
+export const NG_PLUS_COMBAT_MULTIPLIER = 2;
 export const NG_PLUS_REWARD_MULTIPLIER = 1.5;
 export const NG_PLUS_DROP_CHANCE_MULTIPLIER = 1.5;
 
