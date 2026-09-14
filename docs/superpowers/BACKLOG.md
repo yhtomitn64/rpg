@@ -817,6 +817,20 @@ exactly what changed and what didn't:
   `js/systems/inventory.js` (calibrated against the *old* 25%/cycle
   combat growth, now stale) - worth revisiting together.
 
+**Validated same day against a real fight:** the very next superboss
+encounter after this shipped, `superBossThree` killed a level-24 "max
+gear for the playthrough" character in 8.4s (`playlog1.txt`) - explained
+exactly by the math (its own base attack of 60, individually tuned down
+through two balance-simulation passes specifically to avoid a burst-kill
+failure mode, now hits for 240 at NG+2 instead of 94, because the blanket
+multiplier stacks on top of that existing per-monster tuning rather than
+replacing it). Timothy's call after seeing the numbers: keep it -
+"I think that's fine," with no potions queued as the real mitigating
+factor. Worth remembering if this pattern recurs elsewhere: the blanket
+NG+ multiplier can push an *individually* pre-tuned superboss well past
+what its own tuning pass targeted, and that's being accepted as intended
+severity for now rather than treated as a bug.
+
 ## Multi-zone progression (big idea — needs its own design pass)
 
 Several related ideas raised together about giving zones 2/3/4 distinct
