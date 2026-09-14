@@ -8,7 +8,11 @@ import {
   isValidSaveCode,
   startCodeTransfer,
   loadByCode,
+  isValidEmailCode,
+  sendEmailCode,
+  redeemEmailCode,
 } from '../systems/cloudSave.js';
+import { setActiveEmailCode, isLinked as isEmailLinked, getActiveEmailCode } from '../systems/cloudAutoSave.js';
 
 const ITEM_MENU_AUTO_CLOSE_MIN_MS = 250;
 const ITEM_MENU_AUTO_CLOSE_MAX_MS = 5000;
@@ -141,6 +145,53 @@ async function handleLoadFromCode() {
   }
 }
 
+async function handleSendEmailCode() {
+  const input = document.getElementById('cloud-email-input');
+  const email = input.value.trim();
+  flashStatus('cloud-email-status', 'Sending...');
+  try {
+    const { ok, code } = await sendEmailCode(email, state);
+    if (!ok) {
+      flashStatus('cloud-email-status', 'Failed to send - check the address and try again.');
+      return;
+    }
+    setActiveEmailCode(code);
+    flashStatus('cloud-email-status', "Code sent - check your email. It'll stay live while you keep playing, up to 24 hours after you stop.");
+    input.value = '';
+    render(); // switches this block into its "linked" display
+  } catch {
+    flashStatus('cloud-email-status', 'Failed to send - check your connection.');
+  }
+}
+
+// Shares callbacks.onCloudSaveImported (js/main.js) with the
+// code-transfer load path (handleLoadFromCode above) and Character
+// Select (js/screens/startScreen.js) - same overwrite-vs-new-slot
+// decision either way.
+async function handleRedeemEmailCode() {
+  const input = document.getElementById('cloud-email-redeem-input');
+  const code = input.value.trim().toLowerCase();
+  if (!isValidEmailCode(code)) {
+    flashStatus('cloud-email-status', 'Enter the 8-character code from your email.');
+    return;
+  }
+  flashStatus('cloud-email-status', 'Loading...');
+  try {
+    const data = await redeemEmailCode(code);
+    if (data === null) {
+      flashStatus('cloud-email-status', 'No live save for that code - it may have expired or already been used.');
+      return;
+    }
+    const result = callbacks.onCloudSaveImported(data);
+    flashStatus('cloud-email-status', result.imported
+      ? (result.mode === 'overwrite' ? `Updated "${result.name}"!` : `Imported as "${result.name}"! Find it on the Character Select screen.`)
+      : 'Import cancelled.');
+    input.value = '';
+  } catch {
+    flashStatus('cloud-email-status', 'Load failed - check your connection.');
+  }
+}
+
 function render() {
   rootEl.innerHTML = `
     <div class="overlay-panel settings-panel">
@@ -264,6 +315,31 @@ function render() {
           <span id="cloud-code-status" hidden></span>
         </div>
       ` : ''}
+      ${state.settings.featureFlags?.cloudSaveBeta ? `
+        <h3>📧 Email me a code</h3>
+        <p class="settings-hint">
+          We only use your email to send this one code - it's never stored or
+          logged anywhere on our end. The code stays live while you keep
+          playing this character, up to 24 hours after you stop.
+        </p>
+        ${isEmailLinked() ? `
+          <div class="settings-row">
+            <span>Code active: this character keeps syncing while you play.</span>
+          </div>
+        ` : `
+          <div class="settings-row">
+            <input type="email" id="cloud-email-input" placeholder="you@example.com" />
+            <button id="btn-cloud-send-email">Send me a code</button>
+          </div>
+        `}
+        <div class="settings-row">
+          <input type="text" id="cloud-email-redeem-input" maxlength="8" placeholder="code from your email" />
+          <button id="btn-cloud-email-redeem">Load</button>
+        </div>
+        <div class="settings-row">
+          <span id="cloud-email-status" hidden></span>
+        </div>
+      ` : ''}
       ${state.settings.featureFlags?.audioBeta ? `
         <h3>Sound</h3>
         <div class="settings-row">
@@ -357,6 +433,10 @@ function render() {
     document.getElementById('btn-cloud-start-transfer').onclick = () => handleStartTransfer();
     document.getElementById('btn-cloud-code-load').onclick = () => handleLoadFromCode();
     updateTransferCountdownUI(); // restores an in-progress countdown across a re-render (e.g. toggling another flag)
+    if (!isEmailLinked()) {
+      document.getElementById('btn-cloud-send-email').onclick = () => handleSendEmailCode();
+    }
+    document.getElementById('btn-cloud-email-redeem').onclick = () => handleRedeemEmailCode();
   }
   const soundThemeSelect = document.getElementById('settings-sound-theme');
   if (soundThemeSelect) {
