@@ -130,6 +130,13 @@ export async function playMusic(soundId, { crossfadeMs = 1500 } = {}) {
   }
 }
 
+// Lets a caller that's about to switch tracks (e.g. entering battle) capture
+// what was already playing, so it can crossfade back to it afterward instead
+// of guessing at an area theme from scratch.
+export function getCurrentMusicId() {
+  return currentMusic?.soundId ?? null;
+}
+
 export function stopMusic({ fadeMs = 1500 } = {}) {
   if (!currentMusic) return;
   const now = audioContext.currentTime;

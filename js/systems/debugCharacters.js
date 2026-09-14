@@ -1,4 +1,4 @@
-import { DEFAULT_DUNGEON_ENTRANCE_POSITION, DEFAULT_ITEM_MENU_AUTO_CLOSE_MS } from '../state.js';
+import { DEFAULT_DUNGEON_ENTRANCE_POSITION, DEFAULT_ITEM_MENU_AUTO_CLOSE_MS, loadState } from '../state.js';
 import { upsertSlot } from './saveSlots.js';
 import { QUEST_REQUIREMENTS, getQuestRequirement } from './quests.js';
 
@@ -186,6 +186,19 @@ export function applyDebugCharacterFromUrl(search = globalThis.location?.search,
   if (!factory) return null;
   const id = `debug-${key}`;
   const state = factory();
+  // Raised live 2026-09-13 while testing audio: this used to overwrite the
+  // slot's `settings` with the factory's hardcoded defaults on every single
+  // reload of a ?debug= URL, silently reverting audioBeta (and any other
+  // preference toggled since) back to off. The whole point of a debug
+  // character is a deterministic *gameplay* state (level/gear/position) to
+  // repeatedly test against - it was never meant to also keep punishing
+  // in-session settings changes every reload. Carry the previous save's
+  // settings forward if one already exists; only a first-ever load of this
+  // debug character gets the factory's hardcoded settings.
+  const previous = loadState(id, storage);
+  if (previous?.settings) {
+    state.settings = previous.settings;
+  }
   upsertSlot(id, `[Debug] ${key}`, state, storage);
   return id;
 }

@@ -5,6 +5,7 @@ import {
 } from '../systems/inventory.js';
 import { tierLabel } from '../systems/itemQuality.js';
 import { logEvent } from '../systems/telemetry.js';
+import { playSfx } from '../systems/audio.js';
 
 const FIXED_SLOTS = ['weapon', 'head', 'body', 'legs'];
 
@@ -145,6 +146,7 @@ function tryUpgrade(slot) {
     const next = upgradeItem(state, slot, materialId, cost);
     Object.assign(state, next);
     logEvent('upgrade_purchased', { itemId, slot, tier: tier || null, newLevel: level + 1, goldSpent: cost, ngPlusCycle: state.ngPlusCycle });
+    playSfx('smithUpgrade');
     callbacks.onUpgrade();
   } catch {
     // Not enough gold or missing material — button availability already reflects this
@@ -162,6 +164,7 @@ function tryReforge(slot) {
       goldSpent: REFORGE_GOLD_COST, essenceSpent: REFORGE_ESSENCE_COST,
       ngPlusCycle: state.ngPlusCycle,
     });
+    playSfx('smithUpgrade');
     callbacks.onUpgrade();
   } catch {
     // Not enough gold or essence — button availability already reflects this

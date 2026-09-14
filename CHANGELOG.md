@@ -24,6 +24,90 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-09-13
+
+### Added
+- **The basic Attack (`a`) now has its own punch impact sound, `attackPunch`**,
+  instead of sharing the generic `hitNormal` thud - wired as `playHitEffect`'s
+  `impactSoundId` at the Attack call site in `js/screens/battleScreen.js`, the
+  same mechanism Faultline's `abilitySweepImpact` already used, so it
+  *replaces* `hitNormal` there rather than layering on top of it. 4-take
+  rotation (`SOUND_VARIANTS.attackPunch`).
+- **Faultline's swing and per-enemy impact sounds replaced**, and **Impale
+  (`abilitySwingStab`), Lacerate (`abilitySwingSlash`), and Super Scream
+  (`abilitySwingSuperScream`) all got fresh takes** from this session's
+  punch/swing-generation batches. Sever (`abilitySwingChop`) did **not** get
+  replaced - the candidates generated for it were rejected outright
+  ("None of the sever sound right"); it's still on its original 3 takes
+  pending another round.
+- **First takes added for several previously-silent combat/UI sounds**:
+  `parrySuccess`, `timingSuccess`, `battleStart` (replaced), `bossBattleStart`
+  (new), `menuMove`, `menuSelect`, `actionInvalid`, `smithUpgrade` (4-take
+  rotation), `comebackWarp`, `potionIronSkinTonic`, `potionSwiftElixir`,
+  `potionMomentumElixir`, `potionFocusTonic`, `potionBerserkerTonic`,
+  `potionSecondWind`, `potionThornbarkDraught`, `potionEmberVial`.
+- **Battle music now crossfades in and back out.** `js/systems/audio.js`
+  gains `getCurrentMusicId()`; `battleScreen.js` captures whatever music was
+  playing before a fight starts, crossfades into `battleTheme` (or
+  `bossBattleTheme` for a boss encounter) via the existing `playMusic`
+  crossfade, and crossfades back to the captured track (or fades to silence)
+  in `endBattle()`. No area-music selection exists yet, so this is currently
+  silent in practice - it activates automatically once real theme tracks are
+  shipped and something is wired to `playMusic` on the map side.
+- **Wired up several sounds that had takes shipped but no call site yet** -
+  found by a live playtest ("not sure I got a timing sound when I did
+  ability 3"), which was correct: nothing called `playSfx('timingSuccess'/
+  'timingFail')` at all before this. Now wired: Lacerate's retrigger-timing
+  window (`handleLacerateRetriggerPress` in `battleScreen.js`), a landed
+  parry (`resolveMonsterWindup`), the battle-start/boss-start stinger
+  (`mount()`) and battle-end/boss-end victory stinger (`endBattle()`, only
+  on `outcome === 'won'`), every potion via a new `POTION_SOUND_IDS` map in
+  `drinkPotion()`, a smith upgrade/reforge (`smithScreen.js`), the
+  post-death warp (`main.js`'s `onWarpToDungeon`), and `menuMove`/
+  `actionInvalid` on the battle item-quick-menu's arrow nav and invalid
+  slot picks plus target-cycling (`cycleTarget`). **`menuSelect.mp3` is
+  shipped but still has no call site** - no spot in the current menus needs
+  it without doubling up with a sound that already plays there (a potion's
+  own sound already carries "selection landed" in the item menu); flagged
+  in `docs/superpowers/BACKLOG.md` rather than force-fit somewhere.
+- **`battleEnd`/`bossBattleEnd` now have real takes.** `battleEnd` is the
+  `battleStart` stinger played in reverse (`ffmpeg -af areverse`) - Timothy:
+  "the battles are so short I don't know if we need the end of battle
+  sound... reverse the enter battle sound and use that for the end" -
+  giving a wind-down bookend instead of a second distinct fanfare.
+  `bossBattleEnd` is a dedicated thunderous-drums take, picked after two
+  further generation rounds.
+- Everything above is still behind Settings → "🚧 Feature Flags" →
+  `audioBeta`, off by default.
+
+### Fixed
+- **Holding a key in battle rapid-fired a click sound.** Raised live:
+  "hold down the right key... constant rapid fire click sound." The
+  browser's own key-repeat was driving `cycleTarget()` (target-cycling) and
+  the item quick-menu's arrow nav/digit-select on every auto-repeated
+  `keydown`, once those started playing `menuMove`/potion sounds - harmless
+  when those calls were silent, audible (and for digit-select, capable of
+  chain-drinking potions) once they weren't. Both handlers in
+  `battleScreen.js` now ignore `event.repeat`, matching how
+  `mapScreen.js`'s movement keys already do.
+- **A `?debug=<character>` URL reset `audioBeta` (and any other setting) to
+  off on every reload.** `applyDebugCharacterFromUrl`
+  (`js/systems/debugCharacters.js`) unconditionally overwrote the debug
+  slot's entire state - including `settings` - with the character's
+  hardcoded factory defaults every time the URL loaded, silently reverting
+  anything toggled in Settings since. It now carries the slot's existing
+  `settings` forward across a reload and only applies the factory's
+  settings on that debug character's first-ever load; the gameplay state
+  (level/gear/position) still resets every time, which is the actual point
+  of a debug character.
+
+All still open: most of the ~55-sound catalog remains unshipped
+(`potionHeal`/`potionVampiricTonic`/`potionStrengthDraught` and most
+world/UI sounds still uncast, Sever/`abilitySwingChop` still pending a
+replacement), and no music track has been selected yet (a loop-ready
+candidate pass across all 9 categories exists in the separate
+`emoji-rpg-audio` tooling repo, pending a listening decision).
+
 ## [0.36.0] - 2026-09-13
 
 ### Added

@@ -3,6 +3,15 @@ export const DEFAULT_THEME = 'realistic';
 export const SOUND_CATEGORY = {
   // Combat
   hitNormal: 'combat', hitCrit: 'combat', hitMiss: 'combat',
+  // The basic Attack (the `a` key) is a punch, and it gets its own impact
+  // rather than sharing hitNormal. It's a real part of the rotation - it has
+  // diminishing returns on spam but can be buffed into a strong option - so
+  // it needs to read as its own move and not as "the generic hit". Passed as
+  // playHitEffect's impactSoundId at the Attack call site, the same way
+  // Faultline's abilitySweepImpact is, so it *replaces* hitNormal there
+  // instead of layering on top of it. hitNormal stays as the shared impact
+  // under Impale/Sever/Lacerate, which add their own swing above it.
+  attackPunch: 'combat',
   parrySuccess: 'combat', parryFail: 'combat',
   timingSuccess: 'combat', timingFail: 'combat',
   revive: 'combat', monsterAbilityGeneric: 'combat',
@@ -46,10 +55,12 @@ export const SOUND_CATEGORY = {
 // take is this number plus dropping the file in.
 export const SOUND_VARIANTS = {
   hitNormal: 2,
-  abilitySwingStab: 4,
+  attackPunch: 4,
+  abilitySwingStab: 3,
   abilitySwingChop: 3,
-  abilitySwingSlash: 8,
-  abilitySwingSweep: 2,
+  abilitySwingSlash: 3,
+  abilitySweepImpact: 4,
+  smithUpgrade: 4,
 };
 
 function variantFilenames(soundId) {

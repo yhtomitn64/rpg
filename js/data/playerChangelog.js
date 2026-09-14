@@ -6,6 +6,17 @@
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
   {
+    version: '0.37.0',
+    date: '2026-09-13',
+    highlights: [
+      'Added: your basic Attack now has its own punch sound instead of sharing the same thud as everything else, and Impale and Lacerate got new swing sounds too.',
+      'Added: a bunch of previously-silent moments now make noise - landing a parry, nailing Lacerate\'s follow-through timing, starting or winning a battle (regular or boss), a smith upgrade, warping back after a losing streak, moving through the item quick-menu, and drinking most potions.',
+      'Note: still behind "Audio (beta)" in Settings - turn it on to hear any of this.',
+      'Fixed: holding a direction key during a battle no longer machine-guns a click sound (or, worse, chain-drinks your potions) - only the actual key press counts now.',
+      'Fixed: a debug testing URL was resetting the Audio (beta) toggle back off every time it reloaded - shouldn\'t affect normal saves, but if you noticed audio "turning itself off," this was why.',
+    ],
+  },
+  {
     version: '0.36.0',
     date: '2026-09-13',
     highlights: [
