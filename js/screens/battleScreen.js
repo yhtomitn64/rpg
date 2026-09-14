@@ -1794,6 +1794,14 @@ async function playerUseAbility(abilityId) {
     logEvent('ability_used', { abilityId, inBattle: true, ngPlusCycle: state.ngPlusCycle });
     const gcdMs = abilityGcdMsForSpeed(playerCombatant.speed);
     if (ability.type === 'buff') {
+      // A buff-type ability never reaches playPlayerSwing/playPlayerSweepSwing
+      // below (both are on the damage-dealing branches only), so it has to
+      // play its own swing sound here or not at all - Super Scream's own
+      // sound was correctly mapped in swingSoundIdFor but never actually
+      // fired, exactly the report this fixes ("I thought I chose a sound for
+      // super scream but I don't hear it").
+      const swingSoundId = swingSoundIdFor(ability);
+      if (swingSoundId) playSfx(swingSoundId);
       buffState = activateBuff(ability, ability.id);
       abilityCooldowns[abilityId] = ability.cooldownMs;
       attackStreak = 0;

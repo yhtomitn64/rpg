@@ -38,8 +38,10 @@ export const superBossTwoMap = {
   legend: LEGEND,
   rows: ROWS,
   startPosition: { x: 0, y: 0 },
-  encounterChance: 0,
+  // Was 0/[] - see superBossOneDungeon.js's own comment. Reuses farEast's
+  // monster table (this dungeon's entrance zone, superBosses.js).
+  encounterChance: 0.2,
   cacheChance: 0,
-  monsterTable: [],
+  monsterTable: ['direWolf', 'spider', 'scorpion'],
   guardianMonsterId: 'superBossTwo',
 };

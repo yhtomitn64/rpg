@@ -80,7 +80,7 @@ export const ITEMS = {
   // debuffDurationPercent shortens the highest-cycle boss's slow/stun/
   // cooldown-overload specials, both already-wired stat fields (STAT_KEYS in
   // js/systems/inventory.js), zero new combat code needed.
-  guardiansLastStand: { id: 'guardiansLastStand', name: "Guardian's Last Stand [PLACEHOLDER NAME]", emoji: '🛡️', slot: 'accessory', price: 0,
+  guardiansLastStand: { id: 'guardiansLastStand', name: "Guardian's Last Stand", emoji: '🛡️', slot: 'accessory', price: 0,
     stats: { thornsPercent: 30, debuffDurationPercent: 25 } },
 
   // Consumables

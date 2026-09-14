@@ -23,7 +23,7 @@ import {
 } from './trail.js';
 import {
   CACHE_MARKER_EMOJI, MINI_DUNGEON_MARKER_EMOJI, CACHE_MARKER_DESCRIPTION, MINI_DUNGEON_MARKER_DESCRIPTION,
-  MOUNT_EMOJI_FOR_TOOL, PORTAL_ACTION_TILES, SIGN_LABEL_BY_TILE, RANDOM_SIZE_OBSTACLES,
+  MOUNT_EMOJI_FOR_TOOL, PORTAL_ACTION_TILES, SIGN_LABEL_BY_TILE, RANDOM_SIZE_OBSTACLES, CAVE_RANDOM_SIZE_OBSTACLES,
   TILE_SIZE_PX, FULL_SQUARE_PX, HERO_AND_LOOT_PX, OBSTACLE_MAX_EXTRA, GUARDIAN_PX,
   FULL_SQUARE_MARKERS, STUMP_AND_RUBBLE, groundColorFor,
   TRAIL_VIEWBOX_SIZE, TRAIL_DIR_DELTA,
@@ -131,6 +131,30 @@ function buildTrailOp(ctx, gx, gy, signature) {
   };
 }
 
+// exit/guardian sit in GRASS_CONTEXT_MARKERS (groundColorFor in
+// mapRenderModel.js) so an overworld town gate or dungeon guardian shows
+// green grass underneath rather than a bare dark box - but the same two
+// tile types are also placed as the door and boss room inside a cave-type
+// dungeon (js/maps/superBosses/), where painting them grass-green stands
+// out badly against the surrounding cave floor/wall. Raised live via
+// screenshot: "door on green looks bad should have no bg." groundColorFor
+// has no way to tell those two contexts apart on tile type alone, so this
+// checks the tile's actual cave-or-not neighbors before trusting the
+// grass-context default.
+const CAVE_AMBIGUOUS_MARKERS = new Set([TILES.exit, TILES.guardian]);
+const CARDINAL_NEIGHBOR_DELTAS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+function resolveGroundColor(ctx, gx, gy, tile) {
+  if (CAVE_AMBIGUOUS_MARKERS.has(tile)) {
+    const inCave = CARDINAL_NEIGHBOR_DELTAS.some(([dx, dy]) => {
+      const neighbor = ctx.signatureAt(gx + dx, gy + dy);
+      return neighbor?.resolved && (neighbor.tile === TILES.caveFloor || neighbor.tile === TILES.caveWall);
+    });
+    if (inCave) return GROUND_COLOR_DEFAULT;
+  }
+  return groundColorFor(tile);
+}
+
 // Every op for one tile, in paint order within that tile.
 function buildCellOps(ctx, gx, gy, signature, out) {
   if (!signature.resolved) {
@@ -144,7 +168,7 @@ function buildCellOps(ctx, gx, gy, signature, out) {
 
   const { x, y, tile, isPlayer, hasMiniDungeon, hasTileCache, visited, questReady } = signature;
 
-  out.push({ op: 'ground', gx, gy, color: groundColorFor(tile) });
+  out.push({ op: 'ground', gx, gy, color: resolveGroundColor(ctx, gx, gy, tile) });
 
   // An inset box-shadow paints above the background but below any content,
   // so this sits between ground and everything else - matching where
@@ -156,7 +180,8 @@ function buildCellOps(ctx, gx, gy, signature, out) {
   const emoji = hasMiniDungeon ? MINI_DUNGEON_MARKER_EMOJI : hasTileCache ? CACHE_MARKER_EMOJI : pickTileVariant(tile, x, y);
   const mountEmoji = isPlayer && tile.requiresTool && ctx.hasToolFor(tile)
     ? MOUNT_EMOJI_FOR_TOOL[tile.requiresTool] : null;
-  const isRandomSizeObstacle = !hasMiniDungeon && !hasTileCache && RANDOM_SIZE_OBSTACLES.has(tile);
+  const isRandomSizeObstacle = !hasMiniDungeon && !hasTileCache
+    && (RANDOM_SIZE_OBSTACLES.has(tile) || CAVE_RANDOM_SIZE_OBSTACLES.has(tile));
   const isFullSquareMarker = hasMiniDungeon || hasTileCache || FULL_SQUARE_MARKERS.has(tile);
   const isDecoratedGrass = !isFullSquareMarker && (tile === TILES.grass || STUMP_AND_RUBBLE.has(tile)) && emoji !== '';
 
@@ -334,7 +359,7 @@ export function buildLayeredDrawList(ctx, { splitDynamic = true } = {}) {
         // content is deferred. The boosted pass re-emits ground harmlessly
         // over the same rect, so this keeps the two passes independent. The
         // ground is never animated, so it stays cached either way.
-        staticOps.push({ op: 'ground', gx, gy, color: groundColorFor(signature.tile) });
+        staticOps.push({ op: 'ground', gx, gy, color: resolveGroundColor(ctx, gx, gy, signature.tile) });
         continue;
       }
       buildCellOps(ctx, gx, gy, signature, cellOps);
