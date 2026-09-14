@@ -1,4 +1,4 @@
-import { loadState, saveState, DEFAULT_HERO_EMOJI, DEFAULT_DUNGEON_ENTRANCE_POSITION, migrateRingSlots, migratePowerRingSlot, migrateAccessorySlots, migrateBestDamage, migrateLoadout, migrateSettings, migrateAudioSettings, migrateHudSettings, migrateFeatureFlags, migrateCameraSettings, migrateCharacterId } from './state.js';
+import { loadState, saveState, DEFAULT_HERO_EMOJI, DEFAULT_DUNGEON_ENTRANCE_POSITION, migrateRingSlots, migratePowerRingSlot, migrateAccessorySlots, migrateBestDamage, migrateLoadout, migrateSettings, migrateAudioSettings, migrateHudSettings, migrateFeatureFlags, migrateCameraSettings, migrateCharacterId, migrateWornPathSettings } from './state.js';
 import { initAudio, unlockAudio, syncAudioSettings, playSfx } from './systems/audio.js';
 import { mountScreen, mountOverlay, unmountOverlay } from './screens/screenManager.js';
 import * as mapScreen from './screens/mapScreen.js';
@@ -21,6 +21,7 @@ import { canoeDungeonMap } from './maps/toolDungeons/canoeDungeon.js';
 import { portalDungeonMap } from './maps/toolDungeons/portalDungeon.js';
 import { TOOL_DUNGEON_ENTRANCES } from './data/toolDungeons.js';
 import { SUPER_BOSSES } from './data/superBosses.js';
+import { isSuperBossDebuted, getSuperBossNotYetMessage } from './systems/superBossGates.js';
 import { centerMap } from './maps/wilderness/center.js';
 import { northMap } from './maps/wilderness/north.js';
 import { southMap } from './maps/wilderness/south.js';
@@ -56,6 +57,8 @@ import { ITEMS } from './data/items.js';
 import { FLAVOR_TEXT } from './data/flavorText.js';
 import { showFlavorBanner } from './screens/flavorBanner.js';
 import { formatBattleOutcomeMessage, describeMonsterGroup } from './systems/messageLog.js';
+import { classifyBattleCategory, computeDps } from './systems/battleStats.js';
+import * as dpsChartScreen from './screens/dpsChartScreen.js';
 import { playCelebration, playToolCelebration } from './screens/celebrationEffect.js';
 import { playItemPickupToast } from './screens/itemPickupToast.js';
 import { initItemTooltip } from './screens/itemTooltip.js';
@@ -86,7 +89,15 @@ import * as mechanicExplainerScreen from './screens/mechanicExplainerScreen.js';
 import { ABILITY_EXPLAINERS } from './data/abilityExplainers.js';
 
 import { superBossOneDungeonMap } from './maps/superBosses/superBossOneDungeon.js';
+import { superBossTwoMap } from './maps/superBosses/superBossTwo.js';
+import { superBossThreeMap } from './maps/superBosses/superBossThree.js';
+import { superBossFourMap } from './maps/superBosses/superBossFour.js';
+import { superBossFiveMap } from './maps/superBosses/superBossFive.js';
 const MAPS = {
+  superBossFive: superBossFiveMap,
+  superBossFour: superBossFourMap,
+  superBossThree: superBossThreeMap,
+  superBossTwo: superBossTwoMap,
   superBossOneDungeon: superBossOneDungeonMap,
   town: townMap,
   dungeon: dungeonMap,
@@ -160,6 +171,7 @@ function startGame(loadedState, slotId) {
   state = migrateSettings(state);
   state = migrateAudioSettings(state);
   state = migrateHudSettings(state);
+  state = migrateWornPathSettings(state);
   state = migrateFeatureFlags(state);
   state = migrateCameraSettings(state);
   state = migrateCharacterId(state);
@@ -495,7 +507,7 @@ function handleCloudSaveImport(data) {
       return { imported: true, mode: 'overwrite', name: existing.name };
     }
   }
-  const defaultName = `Imported ${data?.player?.emoji || ''} Lv${data?.player?.level ?? '?'}`.trim();
+  const defaultName = `Imported ${data?.player?.emoji || ''}`.trim();
   const name = window.prompt('Name this imported character:', defaultName);
   if (name === null) return { imported: false };
   const finalName = name.trim() || defaultName;
@@ -534,8 +546,24 @@ function openSettings() {
       // handleCloudSaveImport) or adds a brand-new one, so it doesn't
       // disturb whatever's being played right now and needs no reload.
       onCloudSaveImported: (data) => handleCloudSaveImport(data),
+      onOpenDpsChart: () => openDpsChart(),
       onClose: () => unmountOverlay(),
     },
+  });
+}
+
+// Reached from Settings' "View DPS Chart" button, next to Copy Play Log -
+// both read the same telemetry buffer (js/systems/telemetry.js). Replaces
+// Settings on the overlay stack rather than stacking on top of it
+// (mountOverlay always tears down whatever overlay is currently active, see
+// screenManager.js), so closing the chart returns straight to the game, not
+// back to Settings - same one-level-deep navigation every other overlay in
+// this file already uses.
+function openDpsChart() {
+  if (battleActive) return;
+  mountOverlay(dpsChartScreen, {
+    state,
+    callbacks: { onClose: () => unmountOverlay() },
   });
 }
 
@@ -624,6 +652,7 @@ function goToMap(mapId) {
       onToolGateCleared: handleToolGateCleared,
       onToolGateNearby: handleToolGateNearby,
       onGateReward: handleGateReward,
+      onWornPathHint: handleWornPathHint,
     },
   });
 }
@@ -675,13 +704,22 @@ function handleTileAction(action) {
   }
   if (action === 'superBossBattle') {
     const superBoss = findSuperBossAt(state.map, state.position.x, state.position.y);
-    if (superBoss) handleEncounter([superBoss.monsterId]);
+    if (!superBoss) return;
+    if (!isSuperBossDebuted(superBoss, state.ngPlusCycle)) {
+      showFlavorBanner(getSuperBossNotYetMessage());
+      return;
+    }
+    handleEncounter([superBoss.monsterId]);
     return;
   }
   if (action === 'enterSuperBossDungeon') {
     const superBoss = findSuperBossAt(state.map, state.position.x, state.position.y);
-    if (superBoss) return enterMap(superBoss.dungeonMapId);
-    return;
+    if (!superBoss) return;
+    if (!isSuperBossDebuted(superBoss, state.ngPlusCycle)) {
+      showFlavorBanner(getSuperBossNotYetMessage());
+      return;
+    }
+    return enterMap(superBoss.dungeonMapId);
   }
   if (action === 'exitMiniDungeon') return handleExitMiniDungeon();
   if (action === 'collectTreasure') return handleTreasureFound();
@@ -769,6 +807,19 @@ function handleToolGateCleared(message) {
 
 function handleToolGateNearby(message) {
   showFlavorBanner(message);
+  persist();
+}
+
+// Timothy's own wording, used verbatim (lightly punctuated) - this project's
+// narrative content is author-written only (see docs/superpowers/
+// BACKLOG.md's "Story / narrative" entry), so this plain mechanic-explainer
+// banner reuses his exact line rather than drafting new copy. Fired once per
+// save the first time a step actually gets the worn-path encounter discount
+// - see mapScreen.js's onWornPathHint callback and flags.wornPathHintShown.
+const WORN_PATH_HINT_TEXT = "Did you notice you're making a trail? Stay on the trail to reduce monster encounters!";
+
+function handleWornPathHint() {
+  showFlavorBanner(WORN_PATH_HINT_TEXT);
   persist();
 }
 
@@ -997,7 +1048,7 @@ function handleEncounter(monsterIds, monsterOverridesList = null) {
   });
 }
 
-function handleBattleEnd(outcome, killedMonsterIds) {
+function handleBattleEnd(outcome, killedMonsterIds, totalDamageDealt = 0) {
   unmountOverlay();
   battleActive = false;
   setHudButtonsEnabled(true);
@@ -1023,6 +1074,16 @@ function handleBattleEnd(outcome, killedMonsterIds) {
     playerLevel: state.player.level,
     hpPercentRemaining: Math.max(0, state.player.hp) / (state.player.maxHp + bonuses.maxHp),
     durationMs: battleDurationMs,
+    // Feeds the in-game DPS chart (js/screens/dpsChartScreen.js, opened from
+    // Settings) - "am I getting stronger over NG+ cycles" needs both a rate
+    // (dps) and what kind of fight it was (category), not just the raw
+    // damage total. totalDamageDealt itself comes from battleScreen.js's own
+    // running per-battle total (see its onBattleEnd's third argument) - it
+    // has to be captured there, before unmountOverlay() above tears that
+    // screen's module state down.
+    totalDamageDealt,
+    dps: computeDps(totalDamageDealt, battleDurationMs),
+    category: classifyBattleCategory(encounterMonsterIds),
   });
   const gearSlots = ['weapon', 'head', 'body', 'legs', 'accessory1', 'accessory2'];
   const playerSnapshot = {

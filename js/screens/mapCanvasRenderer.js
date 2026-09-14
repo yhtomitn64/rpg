@@ -16,7 +16,7 @@
 // quadratic curves) harder rather than easier. The draw-list seam keeps a
 // WebGL painter a contained swap if that ever stops being true.
 import {
-  buildDrawList, describeSignature,
+  buildLayeredDrawList, buildDynamicOps, describeSignature,
   ANCHOR_CENTER, ANCHOR_BOTTOM, ANCHOR_TOP, ANCHOR_POINT, SIGNPOST_FONT_PX,
 } from '../systems/mapDrawList.js';
 import {
@@ -53,11 +53,8 @@ const LABEL_FONT = '700 SIZEpx system-ui, -apple-system, "Segoe UI", sans-serif'
 // .map-tile-portal-crop's own 1.36x - enough to push the 🌌 emoji's baked-in
 // pale border past the tile's edge while it still reads as a starry picture.
 const PORTAL_CROP_SCALE = 1.36;
-// @keyframes map-tile-portal-shadow / map-tile-quest-glow both loop forever.
-// Each is pre-rendered once at its strongest state and pulsed by alpha,
-// rather than re-rasterising a multi-layer blur every frame.
-const PORTAL_SHADOW_PERIOD_MS = 2400;
-const PORTAL_SHADOW_MIN_ALPHA = 0.7;
+// @keyframes map-tile-quest-glow loops forever, pre-rendered once at its
+// strongest state and pulsed by alpha rather than re-rasterising every frame.
 const QUEST_GLOW_PERIOD_MS = 1600;
 const QUEST_GLOW_MIN_ALPHA = 0.35;
 
@@ -118,9 +115,70 @@ let heroGy = null;
 let lastPlayerTile = null;
 let hoverTile = null;
 
+// ---------------------------------------------------------------------------
+// Static layer cache
+// ---------------------------------------------------------------------------
+//
+// Raised by Timothy 2026-09-10: "when I make the window really really big and
+// walk around I get frame drops ... when I walk away from an area with no
+// paths then performance back to top speed fps." Measured before changing
+// anything (the numbers and the full design are in
+// docs/superpowers/plans/2026-09-10-static-layer-cache-plan.md): at a
+// maximised window over fully-walked ground the map cost 7.70ms of JS and
+// 46,668 canvas ops per frame, against 0.76ms and 3,537 ops on untrodden
+// ground. The worn-path trail was ~92% of every draw call - and all of it was
+// being rebuilt and repainted every frame for content that only changes when
+// the player actually steps on a tile.
+//
+// So the ground, the trail and every static sprite are painted once into an
+// offscreen canvas and blitted with a single drawImage per frame. Only the
+// cells that genuinely differ frame to frame - the block around the player,
+// the pulsing portal/quest cells, the hero, the effects - are drawn live.
+let staticCanvas = null;
+let staticCtx = null;
+// The other half of the double buffer used when the cache scrolls - see
+// scrollStaticCache. The two swap roles rather than one being copied to.
+let staticBackCanvas = null;
+let staticBackCtx = null;
+// World tile coordinate of the cached canvas's top-left, and the size it
+// covers. null means "nothing cached yet".
+let cacheOriginGx = null;
+let cacheOriginGy = null;
+let cacheTilesWide = 0;
+let cacheTilesTall = 0;
+let cachedAnimatedCells = [];
+// Set whenever the cached pixels can no longer be trusted: a step (which
+// re-marks the trail on the tiles walked between), a resize, a cluster change.
+let staticCacheDirty = true;
+
+// How far past the viewport the cached layer extends on every side. The cache
+// only has to be rebuilt when the camera walks off the edge of it, so this is
+// a straight trade of memory for rebuild frequency: at 12 tiles a rebuild
+// happens roughly every 12 steps rather than every frame. Deliberately much
+// larger than MARGIN_TILES, which exists for a different reason (drawing the
+// overhang of just-offscreen tiles).
+const CACHE_PAD_TILES = 12;
+
+// "?staticCache=off" paints every cell live again, exactly as the renderer did
+// before the cache existed. Deliberately kept after the cache shipped: the
+// cache's whole risk is that it draws something subtly DIFFERENTLY, and a
+// switch that toggles it on one running page is the only honest way to settle
+// "is this artifact the cache, or was it always like that" - without it the
+// answer is whoever argues more confidently.
+//
+// Read off the render context rather than straight off `location`, matching
+// how mapScreen already resolves its `renderer` param. That is not tidiness:
+// reading a global here left this branch untestable, and the first version of
+// it referenced two variables in their temporal dead zone, so it threw on
+// every frame and painted the map solid black. Timothy found that by trying
+// to use the switch. On the context, a test can drive it.
+function staticCacheEnabled() {
+  return renderContext ? renderContext.staticCacheEnabled !== false : true;
+}
+
+
 const glyphCache = new Map();
 const gradientCache = new Map();
-let portalShadowSprite = null;
 let questGlowSprite = null;
 
 // ---------------------------------------------------------------------------
@@ -156,7 +214,10 @@ function getGlyph(emoji) {
 function invalidateSprites() {
   glyphCache.clear();
   gradientCache.clear();
-  portalShadowSprite = null;
+  // The cached static layer was painted with the sprites being dropped here
+  // (a late-loading emoji font is the common case), so it has to be repainted
+  // too or the old tofu boxes stay on screen for the life of the session.
+  staticCacheDirty = true;
   questGlowSprite = null;
   needsPaint = true;
 }
@@ -173,52 +234,6 @@ function roundRectPath(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r);
   g.arcTo(x, y, x + w, y, r);
   g.closePath();
-}
-
-// .map-tile-portal::before - stacked soft black shadows that bleed OUTSIDE
-// the tile into its neighbors, hugging the tile's own rectangle (box-shadow
-// naturally does; a radial gradient fought the squared-off frame). Rendered
-// at the animation's 50% (strongest) state and pulsed by alpha.
-//
-// Canvas has no box-shadow spread, so each layer's spread is applied by
-// inflating the rectangle instead, and the shape itself is drawn far off the
-// sprite and brought back by shadowOffsetX - the standard way to get a
-// shadow without the casting shape painting over it.
-const PORTAL_SHADOW_LAYERS = [
-  { blur: 12, spread: 4, color: 'rgba(0, 0, 0, 0.6)' },
-  { blur: 26, spread: 12, color: 'rgba(0, 0, 0, 0.4)' },
-  { blur: 46, spread: 22, color: 'rgba(0, 0, 0, 0.2)' },
-];
-const PORTAL_SHADOW_BLEED_PX = 72;
-
-function getPortalShadowSprite() {
-  if (portalShadowSprite) return portalShadowSprite;
-  const bleed = PORTAL_SHADOW_BLEED_PX;
-  const side = TILE_SIZE_PX + bleed * 2;
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.ceil(side * dpr);
-  canvas.height = Math.ceil(side * dpr);
-  const g = canvas.getContext('2d');
-  if (!g) return null;
-  g.scale(dpr, dpr);
-  const far = side * 4;
-  for (const layer of PORTAL_SHADOW_LAYERS) {
-    g.save();
-    g.shadowColor = layer.color;
-    g.shadowBlur = layer.blur;
-    g.shadowOffsetX = far;
-    g.fillStyle = '#000';
-    roundRectPath(
-      g,
-      bleed - layer.spread - far, bleed - layer.spread,
-      TILE_SIZE_PX + layer.spread * 2, TILE_SIZE_PX + layer.spread * 2,
-      TILE_SIZE_PX * 0.14,
-    );
-    g.fill();
-    g.restore();
-  }
-  portalShadowSprite = { canvas, bleed };
-  return portalShadowSprite;
 }
 
 // .map-tile-quest-ready's inset glow, at the animation's 50% state. Drawn by
@@ -417,12 +432,7 @@ function drawGlow(op, px, py) {
   ctx2d.restore();
 }
 
-function paint(drawList, effectOps, suppressHeroGlyph, nowMs) {
-  const widthCss = canvasEl.width / dpr;
-  const heightCss = canvasEl.height / dpr;
-  ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx2d.clearRect(0, 0, widthCss, heightCss);
-
+function paint(ops, effectOps, suppressHeroGlyph, nowMs) {
   const pulse = (periodMs, minAlpha) => {
     const phase = (Math.sin((nowMs / periodMs) * TAU) + 1) / 2;
     return minAlpha + (1 - minAlpha) * phase;
@@ -472,16 +482,6 @@ function paint(drawList, effectOps, suppressHeroGlyph, nowMs) {
         ctx2d.restore();
         break;
       }
-      case 'portalShadow': {
-        const sprite = getPortalShadowSprite();
-        if (!sprite) break;
-        const side = TILE_SIZE_PX + sprite.bleed * 2;
-        ctx2d.save();
-        ctx2d.globalAlpha = pulse(PORTAL_SHADOW_PERIOD_MS, PORTAL_SHADOW_MIN_ALPHA);
-        ctx2d.drawImage(sprite.canvas, px - sprite.bleed, py - sprite.bleed, side, side);
-        ctx2d.restore();
-        break;
-      }
       case 'trail':
         drawTrail(op, px, py);
         break;
@@ -497,7 +497,7 @@ function paint(drawList, effectOps, suppressHeroGlyph, nowMs) {
     }
   };
 
-  for (const op of drawList.ops) {
+  for (const op of ops) {
     if (op.followsHero) heroOps.push(op);
     else drawOp(op);
   }
@@ -511,6 +511,233 @@ function paint(drawList, effectOps, suppressHeroGlyph, nowMs) {
     else if (op.op === 'glow') drawGlow(op, px, py);
     else if (op.op === 'glyph') drawGlyph(op, px, py);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Static layer cache
+// ---------------------------------------------------------------------------
+
+
+// Repaints the whole cached layer, centred on where the camera is now.
+//
+// Every draw helper in this module reads the module-level ctx2d and camGx /
+// camGy rather than taking them as arguments, so rather than threading a
+// target through all of them, this swaps them for the duration and puts them
+// back. Contained and explicit beats rewriting nine drawing functions to
+// carry a context they only ever need for this one caller.
+function rebuildStaticCache(context) {
+  // `context` here is already margin-expanded, so only the cache's own pad is
+  // added on top of it. The size check in frame() computes the same thing and
+  // the two must not drift apart, or every frame would think the cache is the
+  // wrong size and rebuild it.
+  const tilesWide = context.tilesWide + CACHE_PAD_TILES * 2;
+  const tilesTall = context.tilesTall + CACHE_PAD_TILES * 2;
+  const originGx = Math.floor(camGx) - MARGIN_TILES - CACHE_PAD_TILES;
+  const originGy = Math.floor(camGy) - MARGIN_TILES - CACHE_PAD_TILES;
+
+  if (!staticCanvas || cacheTilesWide !== tilesWide || cacheTilesTall !== tilesTall) {
+    staticCanvas = document.createElement('canvas');
+    staticCanvas.width = Math.max(1, Math.round(tilesWide * TILE_SIZE_PX * dpr));
+    staticCanvas.height = Math.max(1, Math.round(tilesTall * TILE_SIZE_PX * dpr));
+    staticCtx = staticCanvas.getContext ? staticCanvas.getContext('2d') : null;
+  }
+  if (!staticCtx) return null;
+
+  const layered = buildLayeredDrawList({
+    ...context, originGx, originGy, tilesWide, tilesTall,
+  });
+
+  const realCtx = ctx2d;
+  const realCamGx = camGx;
+  const realCamGy = camGy;
+  ctx2d = staticCtx;
+  camGx = originGx;
+  camGy = originGy;
+  try {
+    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2d.clearRect(0, 0, tilesWide * TILE_SIZE_PX, tilesTall * TILE_SIZE_PX);
+    // No effects and no hero here - both are live every frame by definition.
+    paint(layered.staticOps, [], false, 0);
+  } finally {
+    ctx2d = realCtx;
+    camGx = realCamGx;
+    camGy = realCamGy;
+  }
+
+  cacheOriginGx = originGx;
+  cacheOriginGy = originGy;
+  cacheTilesWide = tilesWide;
+  cacheTilesTall = tilesTall;
+  cachedAnimatedCells = layered.animatedCells;
+  staticCacheDirty = false;
+  return layered;
+}
+
+function invalidateStaticCache() {
+  staticCacheDirty = true;
+}
+
+// How far a cell's own paint can reach outside its tile, and so how far
+// either side of a patched region the cache has to be re-examined.
+//
+// Measured from the draw list's own numbers rather than guessed: the tallest
+// obstacle is FULL_SQUARE_PX * (1 + OBSTACLE_MAX_EXTRA) = 61.2px, bottom
+// anchored in a 48px tile, so it reaches 0.275 of a tile into the row above;
+// a signpost label is ~15.4px tall and draws entirely above its own tile
+// (0.32 of a tile); a trail stroke's round cap overhangs by half its width.
+// Guardians reach much further (2.2x) but are zBoosted, which means they live
+// in the per-frame layer and never sit in the cache at all. One whole tile is
+// therefore a comfortable margin, not a hopeful one.
+const PATCH_BLEED_TILES = 1;
+
+// Repaints just the cells a step actually changed, instead of the whole
+// cached layer.
+//
+// Why this exists: rebuilding the cache once per step looked fine on an
+// average-per-frame measurement and was terrible to actually play. It turned
+// evenly-spread work into one enormous paint every 110ms - a ~9Hz spike.
+// Timothy, on the build that did that: "it's really really choppy in the
+// outside world ... in town is smooth but outside world with all those paths
+// is pretty bad."
+//
+// The correctness trick is the clip. Redrawing a cell repaints its ground,
+// which would erase anything overhanging into it from a neighbour drawn later
+// in row-major order - that is exactly the bug the 3x3 live block had. So:
+// clip to the rectangle whose pixels may legitimately change, then redraw a
+// LARGER region around it in proper row-major order. The larger region
+// supplies every neighbour that paints into the clipped area, and the clip
+// guarantees nothing outside it is touched. Both bounds come from
+// PATCH_BLEED_TILES above.
+// Repaints one rectangle of world tiles inside the cached layer, leaving
+// every pixel outside it untouched. The shared workhorse for both a step's
+// two-tile patch and the freshly-exposed strips after the camera scrolls.
+//
+// `changedGx/Gy/Wide/Tall` is the region whose CONTENT changed. Two margins
+// come off it, and they are different things:
+//   - dirty: the pixels that may legitimately change, = changed + bleed,
+//     because a changed cell's own paint can reach outside its tile;
+//   - draw:  the cells that must be consulted, = dirty + bleed, because a
+//     neighbour outside the dirty area can paint into it.
+// The clip is set to `dirty`, so redrawing the larger `draw` region cannot
+// disturb anything beyond it.
+function repaintCacheRegion(changedGx, changedGy, changedWide, changedTall) {
+  const dirtyGx = changedGx - PATCH_BLEED_TILES;
+  const dirtyGy = changedGy - PATCH_BLEED_TILES;
+  const dirtyWide = changedWide + PATCH_BLEED_TILES * 2;
+  const dirtyTall = changedTall + PATCH_BLEED_TILES * 2;
+
+  const drawGx = dirtyGx - PATCH_BLEED_TILES;
+  const drawGy = dirtyGy - PATCH_BLEED_TILES;
+  const drawWide = dirtyWide + PATCH_BLEED_TILES * 2;
+  const drawTall = dirtyTall + PATCH_BLEED_TILES * 2;
+
+  const { staticOps } = buildLayeredDrawList({
+    ...renderContext, originGx: drawGx, originGy: drawGy, tilesWide: drawWide, tilesTall: drawTall,
+  });
+
+  const realCtx = ctx2d;
+  const realCamGx = camGx;
+  const realCamGy = camGy;
+  ctx2d = staticCtx;
+  camGx = cacheOriginGx;
+  camGy = cacheOriginGy;
+  try {
+    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2d.save();
+    const clipX = (dirtyGx - cacheOriginGx) * TILE_SIZE_PX;
+    const clipY = (dirtyGy - cacheOriginGy) * TILE_SIZE_PX;
+    ctx2d.beginPath();
+    ctx2d.rect(clipX, clipY, dirtyWide * TILE_SIZE_PX, dirtyTall * TILE_SIZE_PX);
+    ctx2d.clip();
+    ctx2d.clearRect(clipX, clipY, dirtyWide * TILE_SIZE_PX, dirtyTall * TILE_SIZE_PX);
+    paint(staticOps, [], false, 0);
+    ctx2d.restore();
+  } finally {
+    ctx2d = realCtx;
+    camGx = realCamGx;
+    camGy = realCamGy;
+  }
+}
+
+function patchStaticCache(changedTiles) {
+  if (!staticCtx || cacheOriginGx === null) return false;
+
+  let minGx = Infinity; let minGy = Infinity;
+  let maxGx = -Infinity; let maxGy = -Infinity;
+  for (const { gx, gy } of changedTiles) {
+    minGx = Math.min(minGx, gx); maxGx = Math.max(maxGx, gx);
+    minGy = Math.min(minGy, gy); maxGy = Math.max(maxGy, gy);
+  }
+
+  // A patch reaching outside what the cache covers can't be applied - the
+  // caller falls back to a full rebuild, which repositions it anyway.
+  const pad = PATCH_BLEED_TILES * 2;
+  if (minGx - pad < cacheOriginGx || minGy - pad < cacheOriginGy
+    || maxGx + pad >= cacheOriginGx + cacheTilesWide
+    || maxGy + pad >= cacheOriginGy + cacheTilesTall) return false;
+
+  repaintCacheRegion(minGx, minGy, maxGx - minGx + 1, maxGy - minGy + 1);
+  return true;
+}
+
+// Moves the cached layer to a new origin by copying the part that is still
+// valid and repainting only the strips that just came into range.
+//
+// Why this exists: without it, walking off the edge of the cache costs a full
+// repaint of the whole thing. The per-frame average absorbed that, but
+// Timothy felt it as a regular thump every ~12 steps - "it does do the 12
+// step hitch though and it's very noticable". A scroll is one bitmap copy
+// plus at most two thin strips, so it costs about the same as an ordinary
+// step's patch rather than a whole rebuild.
+//
+// Double-buffered rather than copying the canvas onto itself: self-copy with
+// overlapping regions is defined in the spec, but a second buffer removes any
+// question of it, and the two canvases just swap roles each scroll.
+function scrollStaticCache(newOriginGx, newOriginGy) {
+  if (!staticCtx || cacheOriginGx === null) return false;
+  const dx = newOriginGx - cacheOriginGx;
+  const dy = newOriginGy - cacheOriginGy;
+  if (dx === 0 && dy === 0) return true;
+  // Nothing worth keeping: a full repaint is cheaper than a copy plus two
+  // strips that between them cover the whole canvas.
+  if (Math.abs(dx) >= cacheTilesWide || Math.abs(dy) >= cacheTilesTall) return false;
+
+  if (!staticBackCanvas
+    || staticBackCanvas.width !== staticCanvas.width
+    || staticBackCanvas.height !== staticCanvas.height) {
+    staticBackCanvas = document.createElement('canvas');
+    staticBackCanvas.width = staticCanvas.width;
+    staticBackCanvas.height = staticCanvas.height;
+    staticBackCtx = staticBackCanvas.getContext ? staticBackCanvas.getContext('2d') : null;
+  }
+  if (!staticBackCtx) return false;
+
+  staticBackCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  staticBackCtx.clearRect(0, 0, cacheTilesWide * TILE_SIZE_PX, cacheTilesTall * TILE_SIZE_PX);
+  staticBackCtx.drawImage(
+    staticCanvas,
+    -dx * TILE_SIZE_PX, -dy * TILE_SIZE_PX,
+    cacheTilesWide * TILE_SIZE_PX, cacheTilesTall * TILE_SIZE_PX,
+  );
+
+  const frontCanvas = staticCanvas;
+  const frontCtx = staticCtx;
+  staticCanvas = staticBackCanvas;
+  staticCtx = staticBackCtx;
+  staticBackCanvas = frontCanvas;
+  staticBackCtx = frontCtx;
+
+  cacheOriginGx = newOriginGx;
+  cacheOriginGy = newOriginGy;
+
+  // The strips the copy left empty, in the cache's new coordinates. Each is
+  // repainted through the same clipped path an ordinary patch uses, so the
+  // seam against the copied pixels gets its neighbours' overhang correctly.
+  if (dx > 0) repaintCacheRegion(newOriginGx + cacheTilesWide - dx, newOriginGy, dx, cacheTilesTall);
+  else if (dx < 0) repaintCacheRegion(newOriginGx, newOriginGy, -dx, cacheTilesTall);
+  if (dy > 0) repaintCacheRegion(newOriginGx, newOriginGy + cacheTilesTall - dy, cacheTilesWide, dy);
+  else if (dy < 0) repaintCacheRegion(newOriginGx, newOriginGy, cacheTilesWide, -dy);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -656,28 +883,98 @@ function frame(nowMs) {
   // hero now is. Running the camera first would leave it aiming a frame
   // behind the character it is following, which is the same disagreement -
   // one frame's worth of it - that this coupling exists to remove.
-  const drawList = buildDrawList(expandForMargin(renderContext));
-  lastPlayerTile = drawList.playerTile;
-  const heroSettled = advanceHero(dtMs, drawList.playerTile);
+  //
+  // The player's own tile no longer comes from scanning the viewport for it:
+  // mapScreen puts it straight on the context, so the live layer below can
+  // visit a handful of cells instead of every one on screen.
+  const marginContext = expandForMargin(renderContext);
+  const playerTile = { gx: renderContext.playerGx, gy: renderContext.playerGy };
+  lastPlayerTile = playerTile;
+  const heroSettled = advanceHero(dtMs, playerTile);
   const cameraSettled = advanceCamera(dtMs);
+
   // Effects anchor to where the hero is actually drawn, not to the tile they
   // logically occupy - otherwise a level-up burst would fire from the tile
   // ahead of them while they're still mid-stride toward it.
-  const effectAnchor = heroGx === null ? drawList.playerTile : { gx: heroGx, gy: heroGy };
+  //
+  // Sampled BEFORE the cache work below, not after: both painting paths need
+  // it, and having it below meant the ?staticCache=off branch referenced it
+  // in its temporal dead zone - which threw on every frame and rendered a
+  // completely black map. Caught by Timothy trying to use that very switch.
+  const effectAnchor = heroGx === null ? playerTile : { gx: heroGx, gy: heroGy };
   const { ops: effectOps, suppressHeroGlyph } = sampleEffects(
     nowMs, effectAnchor, renderContext.playerEmoji, HERO_AND_LOOT_PX,
   );
 
-  paint(drawList, effectOps, suppressHeroGlyph, nowMs);
+  const widthCss = canvasEl.width / dpr;
+  const heightCss = canvasEl.height / dpr;
+
+  if (!staticCacheEnabled()) {
+    // The pre-cache path: one full draw list, every cell painted live.
+    const layered = buildLayeredDrawList(marginContext, { splitDynamic: false });
+    ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2d.clearRect(0, 0, widthCss, heightCss);
+    paint(layered.staticOps, effectOps, suppressHeroGlyph, nowMs);
+    needsPaint = false;
+    if (!cameraSettled || !heroSettled || hasActiveEffect(nowMs)
+      || layered.hasContinuousAnimation || needsPaint) schedule();
+    else lastFrameMs = 0;
+    return;
+  }
+
+  // The cached layer follows the camera a tile at a time rather than being
+  // left alone until the camera falls off its edge.
+  //
+  // Waiting for the edge meant one scroll every CACHE_PAD_TILES steps, and
+  // that scroll had to repaint a strip that many tiles wide - hundreds of
+  // cells in one frame, which Timothy still felt: "very minor hitch with
+  // cache now ... be cool if it still was not there." Re-centring on every
+  // whole tile of camera movement does the same total work, in strips one
+  // tile wide, spread evenly over the steps that caused it.
+  const desiredGx = Math.floor(camGx) - MARGIN_TILES - CACHE_PAD_TILES;
+  const desiredGy = Math.floor(camGy) - MARGIN_TILES - CACHE_PAD_TILES;
+  const cacheSizeMatches = cacheTilesWide === marginContext.tilesWide + CACHE_PAD_TILES * 2
+    && cacheTilesTall === marginContext.tilesTall + CACHE_PAD_TILES * 2;
+  if (staticCacheDirty || cacheOriginGx === null || !cacheSizeMatches) {
+    const layered = rebuildStaticCache(marginContext);
+    cachedAnimatedCells = layered ? layered.animatedCells : [];
+  } else if (desiredGx !== cacheOriginGx || desiredGy !== cacheOriginGy) {
+    if (!scrollStaticCache(desiredGx, desiredGy)) {
+      const layered = rebuildStaticCache(marginContext);
+      cachedAnimatedCells = layered ? layered.animatedCells : [];
+    }
+  }
+  const hasContinuousAnimation = cachedAnimatedCells.length > 0;
+
+  const dynamic = buildDynamicOps(marginContext, cachedAnimatedCells);
+
+  ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx2d.clearRect(0, 0, widthCss, heightCss);
+  blitStaticCache();
+  paint(dynamic.ops, effectOps, suppressHeroGlyph, nowMs);
   needsPaint = false;
 
   // Keep the loop alive only while something is actually changing. Standing
   // still with nothing animating on screen schedules no frames at all.
-  if (!cameraSettled || !heroSettled || hasActiveEffect(nowMs) || drawList.hasContinuousAnimation || needsPaint) {
+  if (!cameraSettled || !heroSettled || hasActiveEffect(nowMs) || hasContinuousAnimation || needsPaint) {
     schedule();
   } else {
     lastFrameMs = 0;
   }
+}
+
+// One drawImage of the whole cached layer, at the camera's own fractional
+// offset - which is what replaces re-issuing every ground fill, trail stroke
+// and static sprite on screen, every frame.
+function blitStaticCache() {
+  if (!staticCanvas || cacheOriginGx === null) return;
+  ctx2d.drawImage(
+    staticCanvas,
+    (cacheOriginGx - camGx) * TILE_SIZE_PX,
+    (cacheOriginGy - camGy) * TILE_SIZE_PX,
+    cacheTilesWide * TILE_SIZE_PX,
+    cacheTilesTall * TILE_SIZE_PX,
+  );
 }
 
 function schedule() {
@@ -750,7 +1047,7 @@ function handlePointerLeave() {
 }
 
 // ---------------------------------------------------------------------------
-// Renderer interface (mirrors js/screens/mapDomRenderer.js)
+// Renderer interface (what js/screens/mapScreen.js calls directly)
 // ---------------------------------------------------------------------------
 
 export function renderFull(viewport, context) {
@@ -760,6 +1057,17 @@ export function renderFull(viewport, context) {
   heroGx = null;
   heroGy = null;
   hoverTile = null;
+  // A full rebuild means a new mount, a resize or a cluster change - the
+  // cached pixels belong to a world that may not be on screen any more, and
+  // the canvas below is about to be replaced outright.
+  staticCanvas = null;
+  staticCtx = null;
+  staticBackCanvas = null;
+  staticBackCtx = null;
+  cacheOriginGx = null;
+  cacheOriginGy = null;
+  cachedAnimatedCells = [];
+  invalidateStaticCache();
 
   const canvas = document.createElement('canvas');
   canvas.className = 'map-canvas';
@@ -801,22 +1109,59 @@ function resizeCanvasToViewport(viewport) {
   canvasEl.style.height = `${height}px`;
 }
 
+// A devicePixelRatio change (dragging between monitors, or the browser's own
+// zoom - raised 2026-09-12, Timothy: "wonder if it's because I was playing
+// with browser built-in zoom", after a blurry-map-after-a-dialog report that
+// this renderer had no way to self-heal from) fires no resize event of its
+// own, so nothing else would ever notice one. Cheap property read, unlike
+// the clientWidth/clientHeight measurement that was removed from renderStep
+// for forcing a synchronous layout every step.
+function syncDprIfChanged() {
+  const currentDpr = window.devicePixelRatio || 1;
+  if (currentDpr === dpr) return;
+  dpr = currentDpr;
+  invalidateSprites();
+  // The cached layer was rasterised at the old ratio, so it is as stale as
+  // the glyph atlas is - and its backing canvas needs resizing, not just
+  // repainting, which dropping it outright takes care of.
+  staticCanvas = null;
+  staticCtx = null;
+  staticBackCanvas = null;
+  staticBackCtx = null;
+  if (canvasEl.parentElement) resizeCanvasToViewport(canvasEl.parentElement);
+}
+
 export function renderStep(context) {
   if (!canvasEl) return false;
   renderContext = context;
   needsPaint = true;
-  // A devicePixelRatio change (dragging between monitors) fires no resize
-  // event of its own, so it's checked on the hot path - a cheap property
-  // read, unlike the clientWidth/clientHeight measurement that was removed
-  // from here for forcing a synchronous layout every step.
-  const currentDpr = window.devicePixelRatio || 1;
-  if (currentDpr !== dpr) {
-    dpr = currentDpr;
-    invalidateSprites();
-    if (canvasEl.parentElement) resizeCanvasToViewport(canvasEl.parentElement);
-  }
+  // A step re-marks the trail on the tile walked onto and the tile walked
+  // off, so the cached pixels for those two tiles are now stale. mapScreen
+  // says which they are, and patching just those is what keeps a step from
+  // costing a full repaint - see patchStaticCache. Anything that does NOT
+  // name its changed tiles (a discovery, a cleared gate, any future caller)
+  // falls back to repainting everything, because a missed patch would leave
+  // stale pixels on screen until the camera happened to move far enough.
+  const patched = Array.isArray(context.changedTiles)
+    && context.changedTiles.length > 0
+    && !staticCacheDirty
+    && patchStaticCache(context.changedTiles);
+  if (!patched) invalidateStaticCache();
+  syncDprIfChanged();
   schedule();
   return true;
+}
+
+// Called when mapScreen resumes from behind a dialog (battle, inventory,
+// settings, anything mounted via screenManager's mountOverlay) - the one
+// other moment a stale dpr needs to be caught, since resuming otherwise only
+// re-attaches keyboard listeners and would leave a zoom change made while
+// the dialog was open undetected until the player's next literal step.
+export function refreshViewport() {
+  if (!canvasEl) return;
+  syncDprIfChanged();
+  needsPaint = true;
+  schedule();
 }
 
 export function destroy() {
@@ -838,7 +1183,6 @@ export function destroy() {
   resetEffects();
   glyphCache.clear();
   gradientCache.clear();
-  portalShadowSprite = null;
   questGlowSprite = null;
 }
 

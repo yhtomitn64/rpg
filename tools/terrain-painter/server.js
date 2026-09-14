@@ -14,6 +14,7 @@ import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join, extname, resolve, sep } from 'node:path';
 import { MONSTERS } from '../../js/data/monsters.js';
+import { SUPER_BOSSES } from '../../js/data/superBosses.js';
 
 const REPO_ROOT = join(import.meta.dirname, '..', '..');
 
@@ -98,7 +99,17 @@ function patchToolDungeonEntrance(originalText, toolId, pos) {
 // dungeon file link, so those two fields must survive untouched here.
 // dungeonMapId is written unquoted (bare `null`) when there's no dungeon
 // yet, quoted when there is - matching SUPER_BOSSES' own doc comment.
-function patchSuperBossEntry(originalText, superBossId, entry) {
+//
+// `dungeonMapIdOverride` (added alongside handleCreateDungeon's new
+// hook-up-a-superboss step below) lets a caller set a *new* dungeonMapId
+// instead of preserving whatever's on disk - undefined means "preserve"
+// (the existing bulk-export behavior, handlePatchSuperBoss below), a
+// string or null means "write this value instead." Kept as an explicit
+// third state (undefined vs. string vs. null) rather than overloading
+// entry.dungeonMapId, since entry (screenId/x/y/hasDungeon) is exactly the
+// shape the client's superBossMarkers already tracks in memory - it never
+// carries dungeonMapId at all (see this function's own header comment).
+function patchSuperBossEntry(originalText, superBossId, entry, dungeonMapIdOverride) {
   const blockRe = new RegExp(`${escapeRegExp(superBossId)}: \\{[^}]*\\}`);
   const match = originalText.match(blockRe);
   if (!match) throw new Error(`superBosses.js: could not find '${superBossId}' entry`);
@@ -106,7 +117,10 @@ function patchSuperBossEntry(originalText, superBossId, entry) {
   const dungeonMapIdMatch = match[0].match(/dungeonMapId: (null|'[^']*')/);
   if (!monsterIdMatch || !dungeonMapIdMatch) throw new Error(`superBosses.js: '${superBossId}' entry missing monsterId/dungeonMapId`);
   const screenIdText = entry.screenId === null || entry.screenId === undefined ? 'null' : `'${entry.screenId}'`;
-  const newBlock = `${superBossId}: {\n    id: '${superBossId}', monsterId: '${monsterIdMatch[1]}', screenId: ${screenIdText}, x: ${entry.x}, y: ${entry.y}, hasDungeon: ${entry.hasDungeon}, dungeonMapId: ${dungeonMapIdMatch[1]},\n  }`;
+  const dungeonMapIdText = dungeonMapIdOverride === undefined
+    ? dungeonMapIdMatch[1]
+    : dungeonMapIdOverride === null ? 'null' : `'${dungeonMapIdOverride}'`;
+  const newBlock = `${superBossId}: {\n    id: '${superBossId}', monsterId: '${monsterIdMatch[1]}', screenId: ${screenIdText}, x: ${entry.x}, y: ${entry.y}, hasDungeon: ${entry.hasDungeon}, dungeonMapId: ${dungeonMapIdText},\n  }`;
   return originalText.replace(blockRe, newBlock);
 }
 
@@ -149,7 +163,45 @@ async function readJsonBody(req) {
   return JSON.parse(Buffer.concat(chunks).toString());
 }
 
+// Mirrors painter.js's client-side SINGLE_MAPS registry (a separate runtime,
+// no shared import path between browser and Node, so kept independently in
+// sync) - every existing single-map file this server is allowed to patch.
+// mapId is checked against this fixed table, never trusted straight into a
+// path, same rationale as SCREEN_IDS above. "New Dungeon" files aren't
+// listed here on purpose - a mapId with no file yet would make
+// handlePatchSingleMap's readFile below throw ENOENT; those go through
+// handleCreateDungeon (which also handles their first-time main.js
+// registration) instead, every time, not just their first save.
+const SINGLE_MAP_FILES = {
+  dungeon: join(REPO_ROOT, 'js', 'maps', 'dungeonMap.js'),
+  miniDungeonA: join(REPO_ROOT, 'js', 'maps', 'miniDungeons', 'variantA.js'),
+  miniDungeonB: join(REPO_ROOT, 'js', 'maps', 'miniDungeons', 'variantB.js'),
+  miniDungeonC: join(REPO_ROOT, 'js', 'maps', 'miniDungeons', 'variantC.js'),
+  miniDungeonD: join(REPO_ROOT, 'js', 'maps', 'miniDungeons', 'variantD.js'),
+  miniDungeonE: join(REPO_ROOT, 'js', 'maps', 'miniDungeons', 'variantE.js'),
+  axeDungeon: join(REPO_ROOT, 'js', 'maps', 'toolDungeons', 'axeDungeon.js'),
+  pickDungeon: join(REPO_ROOT, 'js', 'maps', 'toolDungeons', 'pickDungeon.js'),
+  canoeDungeon: join(REPO_ROOT, 'js', 'maps', 'toolDungeons', 'canoeDungeon.js'),
+  portalDungeon: join(REPO_ROOT, 'js', 'maps', 'toolDungeons', 'portalDungeon.js'),
+};
+for (const entry of Object.values(SUPER_BOSSES)) {
+  if (entry.hasDungeon && entry.dungeonMapId) {
+    SINGLE_MAP_FILES[entry.dungeonMapId] = join(REPO_ROOT, 'js', 'maps', 'superBosses', `${entry.dungeonMapId}.js`);
+  }
+}
+
 // --- API endpoints ---------------------------------------------------------
+
+async function handlePatchSingleMap(req, res) {
+  const { mapId, legendRowsText } = await readJsonBody(req);
+  const filePath = SINGLE_MAP_FILES[mapId];
+  if (!filePath) throw new Error(`Unknown single-map id: '${mapId}' (not in SINGLE_MAP_FILES - a brand-new "New Dungeon" not yet saved once via "Save New Dungeon to Server"?)`);
+  const originalText = await readFile(filePath, 'utf8');
+  const patched = patchLegendRows(originalText, legendRowsText, filePath);
+  if (patched !== originalText) await writeFile(filePath, patched);
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ changed: patched !== originalText }));
+}
 
 async function handlePatchWilderness(req, res) {
   const { screenId, legendRowsText } = await readJsonBody(req);
@@ -189,8 +241,14 @@ async function handlePatchSuperBoss(req, res) {
 // thing the old "patch a known block in an existing file" approach could
 // never do at all, since there was no existing file/block to patch.
 async function handleCreateDungeon(req, res) {
-  const { mapId, legendRowsText, startX, startY, guardianMonsterId } = await readJsonBody(req);
+  const { mapId, legendRowsText, startX, startY, guardianMonsterId, hookUpSuperBoss } = await readJsonBody(req);
   if (!JS_IDENTIFIER_RE.test(mapId)) throw new Error(`'${mapId}' isn't a legal JS identifier - refusing to use it as a file/registry name`);
+  // Validated up front, before any file write, so a bad hook-up request
+  // can't leave the dungeon file/main.js registration done but the
+  // superboss link half-finished.
+  if (hookUpSuperBoss && !SUPER_BOSSES[hookUpSuperBoss.id]) {
+    throw new Error(`'${hookUpSuperBoss.id}' is not a real SUPER_BOSSES entry`);
+  }
   // Same defense-in-depth rationale as validateSuperBossEntry above - these
   // three values get interpolated straight into a generated dungeon file's
   // source text below.
@@ -217,6 +275,14 @@ async function handleCreateDungeon(req, res) {
   await mkdir(dirPath, { recursive: true });
   const fileContent = `${legendRowsText}\n\nexport const ${mapId}Map = {\n  id: '${mapId}',\n  legend: LEGEND,\n  rows: ROWS,\n  startPosition: { x: ${startX}, y: ${startY} },\n  encounterChance: 0,\n  cacheChance: 0,\n  monsterTable: [],\n  guardianMonsterId: '${guardianMonsterId}',\n};\n`;
   await writeFile(filePath, fileContent);
+  // Registers the file for /api/patch-single-map right away, so a dungeon's
+  // 2nd-and-later saves this same server session can go through the
+  // lightweight LEGEND/ROWS patch instead of re-running this whole
+  // create-dungeon flow (raised 2026-09-13 - re-saving used to re-prompt for
+  // guardianMonsterId and rewrite the whole file every single click). Only
+  // takes effect for the rest of this process's lifetime - a restart still
+  // rebuilds SINGLE_MAP_FILES from SUPER_BOSSES alone, same as before.
+  SINGLE_MAP_FILES[mapId] = filePath;
 
   if (!alreadyRegisteredByUs) {
     // Insert the import right before `const MAPS = {`, and the registry
@@ -233,8 +299,31 @@ async function handleCreateDungeon(req, res) {
     if (withRegistryEntry === withImport) throw new Error(`main.js: could not find 'const MAPS = {' to insert the registry entry`);
     await writeFile(mainPath, withRegistryEntry);
   }
+
+  // Raised by Timothy after authoring superBossTwo's dungeon by hand and
+  // hitting exactly this gap: dungeonMapId was never wired to any UI action
+  // (patchSuperBossEntry above only ever preserves it, since the bulk
+  // "Export All Changed" flow's superBossMarkers never track it - see that
+  // function's own comment) - so every prior dungeon required a manual
+  // hand-edit of js/data/superBosses.js afterward. Optional: a "New Dungeon"
+  // authored standalone (no superboss, or a mini-dungeon-style extra) still
+  // works with hookUpSuperBoss omitted entirely.
+  let hookedUpSuperBoss = null;
+  if (hookUpSuperBoss) {
+    const superBossesPath = join(REPO_ROOT, 'js', 'data', 'superBosses.js');
+    const originalText = await readFile(superBossesPath, 'utf8');
+    const patched = patchSuperBossEntry(
+      originalText,
+      hookUpSuperBoss.id,
+      { screenId: hookUpSuperBoss.screenId, x: hookUpSuperBoss.x, y: hookUpSuperBoss.y, hasDungeon: true },
+      mapId
+    );
+    if (patched !== originalText) await writeFile(superBossesPath, patched);
+    hookedUpSuperBoss = hookUpSuperBoss.id;
+  }
+
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ created: true }));
+  res.end(JSON.stringify({ created: true, hookedUpSuperBoss }));
 }
 
 const server = createServer(async (req, res) => {
@@ -251,6 +340,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (req.method === 'POST' && req.url === '/api/patch-wilderness') return await handlePatchWilderness(req, res);
+    if (req.method === 'POST' && req.url === '/api/patch-single-map') return await handlePatchSingleMap(req, res);
     if (req.method === 'POST' && req.url === '/api/patch-superboss') return await handlePatchSuperBoss(req, res);
     if (req.method === 'POST' && req.url === '/api/create-dungeon') return await handleCreateDungeon(req, res);
     return await serveStatic(req, res);

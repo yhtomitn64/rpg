@@ -1,14 +1,31 @@
 import { ITEMS } from '../data/items.js';
 import {
   upgradeCost, upgradeItem, describeItem, getUpgradeLevel, getMaxUpgradeLevel,
-  canReforgeToMythic, reforgeToMythic, REFORGE_GOLD_COST, REFORGE_ESSENCE_COST,
+  canReforgeToMythic, reforgeToMythic, REFORGE_GOLD_COST, REFORGE_ESSENCE_COST, physicalKeysFor,
 } from '../systems/inventory.js';
 import { tierLabel } from '../systems/itemQuality.js';
 import { logEvent } from '../systems/telemetry.js';
 import { playSfx } from '../systems/audio.js';
 
-const SLOTS = ['weapon', 'head', 'body', 'legs', 'accessory1', 'accessory2', 'ring1', 'ring2'];
-const SLOT_LABELS = { accessory1: 'Charm 1', accessory2: 'Charm 2', ring1: 'Ring 1', ring2: 'Ring 2' };
+const FIXED_SLOTS = ['weapon', 'head', 'body', 'legs'];
+
+// "Ring N" / "Charm N" labels generated from the physical key itself, so
+// they scale with however many slots the current NG+ cycle has unlocked
+// (see ringSlotCount/accessorySlotCount in inventory.js) instead of only
+// covering the original fixed pair.
+function slotLabel(slot) {
+  const match = /^(ring|accessory)(\d+)$/.exec(slot);
+  if (!match) return slot;
+  return `${match[1] === 'ring' ? 'Ring' : 'Charm'} ${match[2]}`;
+}
+
+function equipmentSlots(currentState) {
+  return [
+    ...FIXED_SLOTS,
+    ...physicalKeysFor('accessory', currentState.ngPlusCycle),
+    ...physicalKeysFor('ring', currentState.ngPlusCycle),
+  ];
+}
 
 let rootEl = null;
 let state = null;
@@ -26,9 +43,9 @@ function materialOptionsForSlot(slotType) {
 }
 
 function render() {
-  const rows = SLOTS.map((slot) => {
+  const rows = equipmentSlots(state).map((slot) => {
     const itemId = state.equipment[slot];
-    if (!itemId) return `<div class="smith-row">${SLOT_LABELS[slot] || slot}: (empty)</div>`;
+    if (!itemId) return `<div class="smith-row">${slotLabel(slot)}: (empty)</div>`;
 
     const item = ITEMS[itemId];
     const tier = state.equipmentTiers?.[slot];

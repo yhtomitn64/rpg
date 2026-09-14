@@ -8,59 +8,131 @@
 // right function with the right args, does the right element exist/update),
 // not pixel-level rendering/CSS - jsdom's layout engine is a no-op, so an
 // occasional live-browser look is still the right tool for that class of bug.
+//
+// Timing model, converted 2026-09-12 from real wall-clock waits to
+// node:test's built-in t.mock.timers - this file used to be 42+ of the
+// suite's ~43 real seconds (89 subtests, most polling real time for
+// js/screens/battleScreen.js's real setInterval(tick, 300)), the same CI-
+// load-starvation risk already fixed in tests/battleSpecialAttacks.test.js
+// (see that file's own header, and docs/superpowers/BACKLOG.md). Every
+// subtest that advances time now enables t.mock.timers for
+// setInterval/setTimeout/Date and steps a fake clock explicitly instead of
+// waiting on the real one. battleScreen.js itself is unchanged.
+//
+// Two hazards found by direct experiment while building this conversion -
+// both documented in detail on the helpers below, not repeated at every
+// call site:
+// - A single tick(delta) call advances Date.now() to its FINAL value before
+//   running any callback due within that span - a callback that both stamps
+//   a timestamp (a windup starting) and later measures against it (that
+//   windup completing) must never have both events land in one batched
+//   tick() call, or the measurement reads as instant/zero. See
+//   advanceUntilWindupStarts/advanceToElapsedPercent below.
+// - A chain of `await sleep(ms)` calls in application code (each one only
+//   registering its OWN setTimeout once the PREVIOUS one's promise
+//   resolves) needs a real microtask flush between successive tick() calls
+//   to progress past one link - calling tick() repeatedly with no await
+//   between only ever fires the first link. See advanceStagger below.
+//
+// The six Lacerate-retrigger-window tests near the end of this file used to
+// be left on real wall-clock waits: that mechanism was timed off
+// `performance.now()` (js/screens/battleScreen.js), which node:test's
+// mock.timers has no 'performance' entry for in its supported apis list on
+// this Node version (confirmed by direct experiment: `enable({apis:
+// ['performance']})` throws ERR_INVALID_ARG_VALUE) or, as of a check against
+// the current docs, any later one either. Rather than hand-roll a second,
+// separately-tracked fake clock just for `performance.now` (real ongoing
+// complexity for six tests), `lacerateRetriggerStartedAt` was switched to
+// `Date.now()` - it matches every other elapsed-time read in the same file
+// (windup start/complete, parry cooldown, buff durations) and a ~1.2s UI
+// timing window has no real use for `performance.now()`'s extra precision
+// or clock-adjustment immunity. All six now use the same fake clock as
+// everything else here.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, teardownDom, createRoot, click, keydown } from './helpers/dom.js';
 import { createNewGame } from '../js/state.js';
 import { PARRY_WINDUP_DURATION_MS, PARRY_ZONE_START_PERCENT, PARRY_ZONE_END_PERCENT } from '../js/systems/parry.js';
 
+// A generously high player HP, same reasoning as tests/battleSpecialAttacks
+// .test.js's own baseState() - found live while stress-testing that file's
+// conversion: deterministic ticks reliably drive a fast (speed:1000)
+// monster through more than one real attack, so an ordinary crit roll can
+// occasionally end the battle mid-assertion (a real, pre-existing hazard
+// from damage-roll randomness, not a mock-timer bug). These tests are about
+// ability/parry/UI behavior, not survival odds. The two tests that need a
+// specific low HP (Second Wind's 1 HP, the heal-potion test's 5 HP) already
+// override it explicitly and are unaffected by this default.
 function baseState(overrides = {}) {
-  return { ...createNewGame(), ...overrides };
+  const state = createNewGame();
+  state.player.hp = 9999;
+  state.player.maxHp = 9999;
+  return { ...state, ...overrides };
 }
 
-// Root-cause fix for a CI-only flake (2026-09-02): these tests need to press
-// during the real-time parry sweet spot, so a wall-clock wait is legitimate
-// here (this IS the timing behavior under test) - but the wait used to be a
-// single hardcoded guess (350ms + 850ms = 1200ms from mount) aimed at the
-// *old* 80-100% zone. d67cf27 narrowed the zone to 90-100% (a 100ms window,
-// half the old one) without updating these waits, which left the guess
-// sitting exactly on the new zone's lower edge with zero margin - any
-// scheduling jitter (the GitHub Actions runner, not this machine) could push
-// the real elapsed time just past 1000ms and land after the window closes
-// entirely. Fixed properly rather than just re-guessing a new constant: poll
-// for the fill's animation to actually appear (replacing the "windup starts
-// ~300ms after mount" assumption with a measured real start time), then wait
-// for the *actual* midpoint of the current zone - derived from the real
-// exported constants, so a future window resize can't silently reintroduce
-// this same gap.
-async function waitForWindupStart(fill) {
-  const pollStart = Date.now();
-  while (!fill.style.animation) {
-    if (Date.now() - pollStart > 2000) throw new Error('windup animation never started');
-    await new Promise((resolve) => setTimeout(resolve, 10));
+// battleScreen.js's own setInterval(tick, 300) - the cadence every fake-
+// clock advance below is expressed in terms of.
+const TICK_MS = 300;
+
+// Deterministic replacement for the old real-wall-clock waitForWindupStart:
+// steps the fake clock forward one tick() cadence at a time (never jumping
+// straight to a guessed target - see this file's header on why) until the
+// given monster's ATB fill animation appears, returning the fake Date.now()
+// at that instant (the correct windup.startedAt to measure future elapsed
+// time against). Works equally for a battle's first windup or a later one
+// (e.g. the second wind-up in the "shared cooldown" test below), since it
+// doesn't assume which tick it starts on - only that speed:1000 (every
+// fixture below overrides monster speed to this) saturates the ATB gauge
+// fast enough that it always happens within maxTicks.
+async function advanceUntilWindupStarts(t, fill, maxTicks = 6) {
+  for (let i = 0; i < maxTicks; i++) {
+    t.mock.timers.tick(TICK_MS);
+    if (fill.style.animation) return Date.now();
   }
-  return Date.now();
+  throw new Error('windup animation never started within the expected number of ticks');
 }
 
-async function waitUntilZoneMidpoint(windupStart) {
-  const midpointPercent = (PARRY_ZONE_START_PERCENT + PARRY_ZONE_END_PERCENT) / 2;
-  const targetElapsedMs = (midpointPercent / 100) * PARRY_WINDUP_DURATION_MS;
-  const remaining = windupStart + targetElapsedMs - Date.now();
-  if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+// windupStart must already be correctly stamped from an earlier, separate
+// tick() batch (e.g. advanceUntilWindupStarts's return value) - this call
+// only ever advances further, in its own batch, so it never risks the
+// stamp-and-measure-in-one-batch hazard this file's header describes.
+function advanceToElapsedPercent(t, windupStart, percent) {
+  const targetMs = windupStart + (percent / 100) * PARRY_WINDUP_DURATION_MS - Date.now();
+  if (targetMs > 0) t.mock.timers.tick(targetMs);
 }
 
-// Same fix as tests/battleSpecialAttacks.test.js's identically-named helper
-// (0.26.6, commit 3c6e9fd) - polls for the real outcome instead of guessing a
-// fixed wall-clock duration for a windup to naturally complete. A few tests
-// below still guessed a duration for that specific race (letting a windup
-// resolve unparried via tick()'s own 300ms poll) and were never touched by
-// that fix - same latent CI-flakiness pattern, just hadn't actually flaked
-// yet (see the BACKLOG.md entry raised alongside this fix, 2026-09-07).
-async function waitForCondition(predicate, description, timeoutMs = 5000) {
-  const pollStart = Date.now();
-  while (!predicate()) {
-    if (Date.now() - pollStart > timeoutMs) throw new Error(`Timed out waiting for ${description}`);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+function advanceToZoneMidpoint(t, windupStart) {
+  advanceToElapsedPercent(t, windupStart, (PARRY_ZONE_START_PERCENT + PARRY_ZONE_END_PERCENT) / 2);
+}
+
+// Deterministic replacement for the old real-wall-clock waitForCondition:
+// steps the fake clock forward one tick() cadence at a time until the
+// predicate holds - same one-discrete-step-per-call safety property as
+// advanceUntilWindupStarts above.
+async function advanceUntil(t, predicate, description, maxTicks = 20) {
+  for (let i = 0; i < maxTicks; i++) {
+    if (predicate()) return;
+    t.mock.timers.tick(TICK_MS);
+  }
+  if (!predicate()) throw new Error(`Timed out waiting for ${description} after ${maxTicks} ticks`);
+}
+
+// Drains `steps` links of a chained `await sleep(stepMs)` sequence in
+// application code (js/screens/battleScreen.js's staggered multi-target
+// hits - Sever's own extra target, Faultline hitting every living enemy).
+// Each link only registers its OWN next setTimeout once the PREVIOUS one's
+// promise resolves, which needs a real microtask flush between successive
+// tick() calls - found by direct experiment: calling tick() repeatedly with
+// no await between only ever fires the first link, every one of them
+// landing on the batch's own final Date.now() (the same family of hazard as
+// the stamp-vs-measure one above, just for a promise chain instead of a
+// single Date reference). `steps` can safely be more than the sequence
+// actually has - ticking after a chain has already fully drained is a
+// harmless no-op, nothing left to fire.
+async function advanceStagger(t, stepMs, steps) {
+  for (let i = 0; i < steps; i++) {
+    t.mock.timers.tick(stepMs);
+    await null;
   }
 }
 
@@ -231,17 +303,19 @@ test('battleScreen DOM', async (t) => {
     assert.match(root.querySelector('#battle-log').textContent, /Swift Elixir/);
   });
 
-  await t.test('the item menu auto-closes on its own after settings.itemMenuAutoCloseMs with nothing picked', async () => {
+  await t.test('the item menu auto-closes on its own after settings.itemMenuAutoCloseMs with nothing picked', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], {
       state: baseState({ inventory: [{ itemId: 'potion', quantity: 1 }], settings: { itemMenuAutoCloseMs: 100 } }),
     });
     keydown('i');
     assert.equal(root.querySelector('#battle-item-menu-overlay').hidden, false);
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    t.mock.timers.tick(150);
     assert.equal(root.querySelector('#battle-item-menu-overlay').hidden, true);
   });
 
-  await t.test('picking a potion resets the auto-close timer instead of letting it expire mid-sequence', async () => {
+  await t.test('picking a potion resets the auto-close timer instead of letting it expire mid-sequence', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root, state } = await mountBattle(['boar'], {
       state: baseState({
         inventory: [
@@ -254,15 +328,15 @@ test('battleScreen DOM', async (t) => {
     });
     keydown('i');
     keydown('1');
-    // Wait past half the window, then pick again - if the timer weren't
-    // reset on pick, the original 150ms deadline would already be close
-    // to firing by the time this second pick lands.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Advance past half the window, then pick again - if the timer weren't
+    // reset on pick, the original 150ms deadline would already be close to
+    // firing by the time this second pick lands.
+    t.mock.timers.tick(100);
     keydown('2');
     assert.equal(root.querySelector('#battle-item-menu-overlay').hidden, false);
     assert.equal(state.inventory.find((e) => e.itemId === 'swiftElixir'), undefined);
     // Now let the (reset) timer actually run out.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    t.mock.timers.tick(200);
     assert.equal(root.querySelector('#battle-item-menu-overlay').hidden, true);
   });
 
@@ -342,16 +416,18 @@ test('battleScreen DOM', async (t) => {
     assert.match(root.querySelector('#battle-log').textContent, /You use Impale/);
   });
 
-  await t.test('using Sever against 2+ monsters also hits one random other living enemy', async () => {
+  await t.test('using Sever against 2+ monsters also hits one random other living enemy', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar', 'boar', 'boar'], { state: baseState({ player: { ...createNewGame().player, level: 4 } }) });
     const hpText = (i) => root.querySelector(`#battle-monster-hp-text-${i}`).textContent;
     const before = [hpText(0), hpText(1), hpText(2)];
     click(root.querySelector('#btn-ability-chop'));
-    // The extra target now lands EXTRA_TARGET_STAGGER_MS after the primary
-    // one, not in the same synchronous click handler - see
+    // The extra target lands EXTRA_TARGET_STAGGER_MS (140ms) after the
+    // primary one, not in the same synchronous click handler - see
     // playerUseAbility's own comment in battleScreen.js for why (staggering
-    // multi-target hits so they read as independent swings).
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // multi-target hits so they read as independent swings). One stagger
+    // step (one extra target).
+    await advanceStagger(t, 140, 1);
     const after = [hpText(0), hpText(1), hpText(2)];
     const hitCount = after.filter((text, i) => text !== before[i]).length;
     assert.equal(hitCount, 2, 'Sever should hit exactly the selected target plus one other');
@@ -364,19 +440,21 @@ test('battleScreen DOM', async (t) => {
     assert.notEqual(root.querySelector('#battle-monster-hp-text-0').textContent, before);
   });
 
-  await t.test('Faultline\'s widen buff makes Impale also hit one extra random enemy for 6s', async () => {
+  await t.test('Faultline\'s widen buff makes Impale also hit one extra random enemy for 6s', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar', 'boar', 'boar'], { state: baseState({ player: { ...createNewGame().player, level: 8 } }) });
     const hpText = (i) => root.querySelector(`#battle-monster-hp-text-${i}`).textContent;
     click(root.querySelector('#btn-ability-sweep'));
-    // Let Faultline's own staggered all-enemies sequence finish.
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    // Let Faultline's own staggered all-enemies sequence finish - 3 monsters,
+    // one SWEEP_STAGGER_MS (260ms, battleScreen.js) step each.
+    await advanceStagger(t, 260, 3);
     assert.match(root.querySelector('#battle-widen-indicator').textContent, /Widened/);
 
     const before = [hpText(0), hpText(1), hpText(2)];
     click(root.querySelector('#btn-ability-stab'));
     // See the plain Sever test above for why this needs to wait out
     // EXTRA_TARGET_STAGGER_MS now.
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await advanceStagger(t, 140, 1);
     const after = [hpText(0), hpText(1), hpText(2)];
     const hitCount = after.filter((text, i) => text !== before[i]).length;
     assert.equal(hitCount, 2, 'Impale should hit its target plus one extra while the widen buff is active');
@@ -387,7 +465,8 @@ test('battleScreen DOM', async (t) => {
     assert.equal(root.querySelector('#battle-widen-indicator').textContent, '');
   });
 
-  await t.test('Faultline\'s widen buff stacks with Sever\'s own extra target, hitting 2 extras total', async () => {
+  await t.test('Faultline\'s widen buff stacks with Sever\'s own extra target, hitting 2 extras total', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     // 4 monsters (not 3, like the plain Sever test above) so that hitting
     // exactly 3 (primary + Sever's own extra + widen's bonus extra) still
     // leaves one monster provably untouched - with only 3 monsters, "all
@@ -395,71 +474,82 @@ test('battleScreen DOM', async (t) => {
     const { root } = await mountBattle(['boar', 'boar', 'boar', 'boar'], { state: baseState({ player: { ...createNewGame().player, level: 8 } }) });
     const hpText = (i) => root.querySelector(`#battle-monster-hp-text-${i}`).textContent;
     click(root.querySelector('#btn-ability-sweep'));
-    // Let Faultline's own staggered all-enemies sequence finish, same wait
-    // as the Impale widen test above.
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    // Let Faultline's own staggered all-enemies sequence finish - 4 monsters.
+    await advanceStagger(t, 260, 4);
     assert.match(root.querySelector('#battle-widen-indicator').textContent, /Widened/);
 
     const before = [hpText(0), hpText(1), hpText(2), hpText(3)];
     click(root.querySelector('#btn-ability-chop'));
-    // Two extra targets now, each staggered EXTRA_TARGET_STAGGER_MS apart -
-    // see the plain Sever test above for why. Margin for both.
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    // Two extra targets now, each its own EXTRA_TARGET_STAGGER_MS step.
+    await advanceStagger(t, 140, 2);
     const after = [hpText(0), hpText(1), hpText(2), hpText(3)];
     const hitCount = after.filter((text, i) => text !== before[i]).length;
     assert.equal(hitCount, 3, 'Sever should hit its target plus its own extra plus one more from the widen buff');
   });
 
-  await t.test('Faultline\'s widen buff also bleeds Lacerate\'s bonus extra target, not just the primary', async () => {
+  await t.test('Faultline\'s widen buff also bleeds Lacerate\'s bonus extra target, not just the primary', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar', 'boar'], { state: baseState({ player: { ...createNewGame().player, level: 8 } }) });
     click(root.querySelector('#btn-ability-sweep'));
-    // Let Faultline's own staggered all-enemies sequence finish, same wait
-    // as the Impale widen test above.
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    // Let Faultline's own staggered all-enemies sequence finish - 2 monsters.
+    await advanceStagger(t, 260, 2);
     assert.match(root.querySelector('#battle-widen-indicator').textContent, /Widened/);
 
     click(root.querySelector('#btn-ability-slash'));
-    // Lacerate's own delayedHitDelayMs is 900ms, ticked down 300ms per real
-    // tick (see tick()'s pendingDelayedHit handling in battleScreen.js) -
-    // wait past it with margin so both targets' bleed ticks land.
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+    // The widen-bonus extra target's own bleed doesn't get armed until its
+    // EXTRA_TARGET_STAGGER_MS stagger step resolves.
+    await advanceStagger(t, 140, 1);
+    // Lacerate's own delayedHitDelayMs (900ms) is a plain per-tick()
+    // countdown (tickCooldowns-style, not a Date-diff), decremented 300ms
+    // per real tick() firing regardless of when each target's own countdown
+    // was armed - a handful of extra 300ms ticks past the minimum needed is
+    // harmless (both counters are already clamped/cleared by then), so no
+    // need to compute the exact minimum precisely.
+    t.mock.timers.tick(300);
+    t.mock.timers.tick(300);
+    t.mock.timers.tick(300);
+    t.mock.timers.tick(300);
     const bleedHits = (root.querySelector('#battle-log').textContent.match(/bleed hits/g) || []).length;
     assert.equal(bleedHits, 2, 'both the primary target and the widen-bonus extra target should take Lacerate\'s delayed bleed tick');
   });
 
-  await t.test('parry windup fill drives from a real-time CSS animation, not a stale JS width snapshot', async () => {
+  await t.test('parry windup fill drives from a real-time CSS animation, not a stale JS width snapshot', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { monsterOverrides: [{ speed: 1000 }] });
     // speed: 1000 saturates the monster's ATB gauge on the very first
     // 300ms tick (tickGauge clamps to 100), so windup starts right away
     // instead of waiting out boar's real speed (4, ~7.5s to fill from 0).
     const fill = root.querySelector('#battle-monster-atb-fill-0');
-    const windupStart = await waitForWindupStart(fill);
+    const windupStart = await advanceUntilWindupStarts(t, fill);
     assert.equal(fill.style.animation, `battle-windup-fill ${PARRY_WINDUP_DURATION_MS}ms linear forwards`);
     // A couple more 300ms ticks fire while still winding (updateAtbBars
     // runs each time) - confirm they don't stomp the animation with a
-    // stale width snapshot, which is exactly the bug this fix closes.
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    // stale width snapshot, which is exactly the bug this fix closes. Two
+    // more ticks (600ms) stays comfortably under the 1000ms windup, so it's
+    // still active, not yet complete.
+    t.mock.timers.tick(TICK_MS);
+    t.mock.timers.tick(TICK_MS);
     assert.equal(
       fill.style.animation,
       `battle-windup-fill ${PARRY_WINDUP_DURATION_MS}ms linear forwards`,
       'animation should survive intervening ticks while still winding',
     );
-    // Press at the real midpoint of the current parry zone (see
-    // waitUntilZoneMidpoint above) and confirm the parry lands, then that
-    // resolution clears the animation.
-    await waitUntilZoneMidpoint(windupStart);
+    // Press at the real midpoint of the current parry zone and confirm the
+    // parry lands, then that resolution clears the animation.
+    advanceToZoneMidpoint(t, windupStart);
     keydown('s');
     assert.match(root.querySelector('#battle-log').textContent, /You parry/);
     assert.equal(fill.style.animation, '');
   });
 
-  await t.test('clicking the Parry button lands a parry the same as the "s" shortcut', async () => {
+  await t.test('clicking the Parry button lands a parry the same as the "s" shortcut', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { monsterOverrides: [{ speed: 1000 }] });
     const parryBtn = root.querySelector('#btn-parry');
     assert.ok(parryBtn, 'Parry button should always render, not gated on unlock level');
     const fill = root.querySelector('#battle-monster-atb-fill-0');
-    const windupStart = await waitForWindupStart(fill);
-    await waitUntilZoneMidpoint(windupStart);
+    const windupStart = await advanceUntilWindupStarts(t, fill);
+    advanceToZoneMidpoint(t, windupStart);
     click(parryBtn);
     assert.match(root.querySelector('#battle-log').textContent, /You parry/);
   });
@@ -471,11 +561,12 @@ test('battleScreen DOM', async (t) => {
   // clear "that worked" signal distinct from a monster's own timing-hit
   // "PERFECT!" badge - a gold "PARRY!" badge plus a flash on the hero's own
   // emoji (see playParryEffect in battleScreen.js).
-  await t.test('parry has a shared cooldown - a second press before it expires does not land, even mid-wind-up', async () => {
+  await t.test('parry has a shared cooldown - a second press before it expires does not land, even mid-wind-up', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { monsterOverrides: [{ speed: 1000 }] });
     const fill = root.querySelector('#battle-monster-atb-fill-0');
-    const firstWindupStart = await waitForWindupStart(fill);
-    await waitUntilZoneMidpoint(firstWindupStart);
+    const firstWindupStart = await advanceUntilWindupStarts(t, fill);
+    advanceToZoneMidpoint(t, firstWindupStart);
     keydown('s');
     assert.match(root.querySelector('#battle-log').textContent, /You parry/);
 
@@ -490,19 +581,20 @@ test('battleScreen DOM', async (t) => {
     // tick too, so a fresh wind-up starts again almost immediately after
     // the first one resolves - press into that second wind-up's own zone
     // while still well inside the 10s cooldown from the first press.
-    const secondWindupStart = await waitForWindupStart(fill);
-    await waitUntilZoneMidpoint(secondWindupStart);
+    const secondWindupStart = await advanceUntilWindupStarts(t, fill);
+    advanceToZoneMidpoint(t, secondWindupStart);
     keydown('s');
     // Pressing while on cooldown is a total no-op (unlike a normal miss, it
-    // doesn't even force-resolve the wind-up) - wait for it to finish on its
-    // own and for tick()'s 300ms poll to catch that completion.
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    // doesn't even force-resolve the wind-up) - let it finish resolving on
+    // its own.
+    await advanceUntil(t, () => /hits you for/.test(root.querySelector('#battle-log').textContent), 'the second wind-up to resolve as a normal unblocked hit');
     const log = root.querySelector('#battle-log').textContent;
     assert.equal((log.match(/You parry/g) || []).length, 1, 'a press while on cooldown should not land a second parry');
     assert.match(log, /hits you for/, 'the second wind-up should resolve as a normal unblocked hit instead');
   });
 
-  await t.test('multi-mob parry catches every monster mid-wind-up regardless of timing, not just those in the zone', async () => {
+  await t.test('multi-mob parry catches every monster mid-wind-up regardless of timing, not just those in the zone', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar', 'boar', 'boar'], {
       monsterOverrides: [{ speed: 1000 }, { speed: 1000 }, { speed: 1000 }],
     });
@@ -510,7 +602,7 @@ test('battleScreen DOM', async (t) => {
     // All three share the same speed:1000 override, so their wind-ups all
     // saturate and start on the same synchronous tick - waiting for the
     // first one's animation to appear confirms all three have started.
-    await waitForWindupStart(fill0);
+    await advanceUntilWindupStarts(t, fill0);
     // Press immediately, well before any monster nears its 90% zone - this
     // is the whole point of the fix: no zone timing required in multi-mob.
     keydown('s');
@@ -523,27 +615,29 @@ test('battleScreen DOM', async (t) => {
   // on the hero's own zone, so three landing at once stacked three badges on
   // top of each other. Only one shared badge/flash should appear regardless
   // of how many monsters got parried in the same press.
-  await t.test('multi-mob parry shows only one shared PARRY! badge, not one per monster', async () => {
+  await t.test('multi-mob parry shows only one shared PARRY! badge, not one per monster', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar', 'boar', 'boar'], {
       monsterOverrides: [{ speed: 1000 }, { speed: 1000 }, { speed: 1000 }],
     });
     const fill0 = root.querySelector('#battle-monster-atb-fill-0');
-    await waitForWindupStart(fill0);
+    await advanceUntilWindupStarts(t, fill0);
     keydown('s');
     assert.equal((root.querySelector('#battle-log').textContent.match(/You parry/g) || []).length, 3);
     assert.equal(document.querySelectorAll('.battle-perfect-timing-badge-parry').length, 1, 'expected exactly one PARRY! badge even though three monsters landed');
   });
 
-  await t.test('clicking a monster\'s ATB bar to parry also respects the shared cooldown', async () => {
+  await t.test('clicking a monster\'s ATB bar to parry also respects the shared cooldown', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { monsterOverrides: [{ speed: 1000 }] });
     const fill = root.querySelector('#battle-monster-atb-fill-0');
-    const windupStart = await waitForWindupStart(fill);
-    await waitUntilZoneMidpoint(windupStart);
+    const windupStart = await advanceUntilWindupStarts(t, fill);
+    advanceToZoneMidpoint(t, windupStart);
     keydown('s'); // burns the shared cooldown via the keyboard path
     assert.match(root.querySelector('#battle-log').textContent, /You parry/);
 
-    const secondWindupStart = await waitForWindupStart(fill);
-    await waitUntilZoneMidpoint(secondWindupStart);
+    const secondWindupStart = await advanceUntilWindupStarts(t, fill);
+    advanceToZoneMidpoint(t, secondWindupStart);
     click(root.querySelector('#battle-monster-atb-bar-0'));
     const log = root.querySelector('#battle-log').textContent;
     assert.equal((log.match(/You parry/g) || []).length, 1, 'clicking the ATB bar while on cooldown should not land a second parry');
@@ -558,25 +652,25 @@ test('battleScreen DOM', async (t) => {
   // only calls resolveMonsterWindup at all once resolveParryAttempt has
   // already passed. attemptParryOnMonster() now gives clicks the same
   // pre-check-then-call shape.
-  await t.test('clicking a monster\'s ATB bar too early misses cleanly instead of forcing its attack to resolve immediately', async () => {
+  await t.test('clicking a monster\'s ATB bar too early misses cleanly instead of forcing its attack to resolve immediately', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { monsterOverrides: [{ speed: 1000 }] });
     const fill = root.querySelector('#battle-monster-atb-fill-0');
-    const windupStart = await waitForWindupStart(fill);
+    const windupStart = await advanceUntilWindupStarts(t, fill);
     // Well before the 80-100% parry zone opens.
-    const earlyElapsedMs = (20 / 100) * PARRY_WINDUP_DURATION_MS;
-    const remaining = windupStart + earlyElapsedMs - Date.now();
-    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+    advanceToElapsedPercent(t, windupStart, 20);
     click(root.querySelector('#battle-monster-atb-bar-0'));
     const log = root.querySelector('#battle-log').textContent;
     assert.doesNotMatch(log, /hits you for/, 'an early click should not force the monster\'s attack to resolve immediately');
     assert.doesNotMatch(log, /You parry/, 'an early click obviously should not land a parry either');
   });
 
-  await t.test('a landed parry shows a distinct PARRY! badge and hero-emoji flash, with no dialog shake', async () => {
+  await t.test('a landed parry shows a distinct PARRY! badge and hero-emoji flash, with no dialog shake', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { monsterOverrides: [{ speed: 1000 }] });
     const fill = root.querySelector('#battle-monster-atb-fill-0');
-    const windupStart = await waitForWindupStart(fill);
-    await waitUntilZoneMidpoint(windupStart);
+    const windupStart = await advanceUntilWindupStarts(t, fill);
+    advanceToZoneMidpoint(t, windupStart);
     keydown('s');
     assert.match(root.querySelector('#battle-log').textContent, /You parry/);
 
@@ -594,23 +688,28 @@ test('battleScreen DOM', async (t) => {
     assert.equal(heroEmoji.classList.contains('battle-parry-flash'), true);
   });
 
-  await t.test('parry zone marker is scheduled to pulse via a real-time-delayed CSS animation', async () => {
+  await t.test('parry zone marker is scheduled to pulse via a real-time-delayed CSS animation', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { monsterOverrides: [{ speed: 1000 }] });
-    await new Promise((resolve) => setTimeout(resolve, 350));
+    const fill = root.querySelector('#battle-monster-atb-fill-0');
+    // The pulse's animation string (with its own embedded delay-in-ms) is
+    // set synchronously the instant the windup starts, not something that
+    // changes over real time - just needs the windup to have started.
+    await advanceUntilWindupStarts(t, fill);
     const zone = root.querySelector('#battle-monster-parry-zone-0');
     const expectedDelayMs = (PARRY_ZONE_START_PERCENT / 100) * PARRY_WINDUP_DURATION_MS;
     assert.equal(zone.style.animation, `battle-zone-pulse 0.35s ease-out ${expectedDelayMs}ms`);
   });
 
-  await t.test('a Retribution Charm reflects damage back at the attacking monster on its unparried attack', async () => {
+  await t.test('a Retribution Charm reflects damage back at the attacking monster on its unparried attack', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], {
       state: baseState({ equipment: { ...createNewGame().equipment, accessory1: 'retributionCharm' } }),
       monsterOverrides: [{ speed: 1000 }],
     });
-    // Let the windup naturally complete unparried (no 's' press) - poll for
-    // tick()'s own isWindupComplete check to actually resolve it instead of
-    // guessing how long that takes under CI load.
-    await waitForCondition(
+    // Let the windup naturally complete unparried (no 's' press).
+    await advanceUntil(
+      t,
       () => /Retribution Charm reflects/.test(root.querySelector('#battle-log').textContent),
       'the unparried attack to resolve and Retribution Charm to reflect it',
     );
@@ -644,7 +743,8 @@ test('battleScreen DOM', async (t) => {
     assert.equal(document.querySelector('.battle-swing-sprite'), null, 'Chop should no longer spawn the old emoji sprite');
   });
 
-  await t.test('using Sweep hits each target in sequence with a single traveling swing sprite, not all at once', async () => {
+  await t.test('using Sweep hits each target in sequence with a single traveling swing sprite, not all at once', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar', 'boar', 'boar'], { state: baseState({ player: { ...createNewGame().player, level: 8 } }) });
     const hpText = (i) => root.querySelector(`#battle-monster-hp-text-${i}`).textContent;
     const before = [hpText(0), hpText(1), hpText(2)];
@@ -655,16 +755,19 @@ test('battleScreen DOM', async (t) => {
       document.querySelectorAll('.battle-swing-sprite:not(.battle-swing-trail)').length, 1,
       'Sweep should use exactly one traveling swing sprite, not one per target',
     );
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // One SWEEP_STAGGER_MS (260ms, battleScreen.js) step per target - the
+    // first target resolves after exactly one step.
+    await advanceStagger(t, 260, 1);
     assert.notEqual(hpText(0), before[0], 'the first target should be hit after roughly one stagger step');
     assert.equal(hpText(1), before[1], 'the second target should not be hit yet');
     assert.equal(hpText(2), before[2], 'the third target should not be hit yet');
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await advanceStagger(t, 260, 2);
     assert.notEqual(hpText(1), before[1], 'the second target should be hit by now');
     assert.notEqual(hpText(2), before[2], 'the third target should be hit by now');
   });
 
-  await t.test('unmounting mid-Sweep-stagger does not throw touching a torn-down document', async () => {
+  await t.test('unmounting mid-Sweep-stagger does not throw touching a torn-down document', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { mount, unmount } = await import('../js/screens/battleScreen.js');
     const root = createRoot();
     mount(root, {
@@ -678,10 +781,10 @@ test('battleScreen DOM', async (t) => {
     // would resume after this, call playHitEffect -> showDamageNumber, and
     // throw reaching for a document/elements this screen no longer owns -
     // this is node:test's own uncaughtException path, not a regular assert,
-    // so the absence of a thrown error after waiting out the full sequence
-    // below is itself the assertion.
+    // so the absence of a thrown error after forcing the pending stagger
+    // step to fire below is itself the assertion.
     unmount();
-    await new Promise((resolve) => setTimeout(resolve, 900));
+    t.mock.timers.tick(1000);
   });
 
   // Attack's own hit mark has no traveling sprite to grow an afterimage
@@ -716,17 +819,58 @@ test('battleScreen DOM', async (t) => {
     }
   });
 
-  await t.test('Sweep always shows a trail on its traveling sprite, regardless of crit', async () => {
+  await t.test('Sweep always shows a trail on its traveling sprite, regardless of crit', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const originalRandom = Math.random;
     Math.random = () => 0.99; // forces every hit in the sequence to be a non-crit
     try {
       const { root } = await mountBattle(['boar'], { state: baseState({ player: { ...createNewGame().player, level: 8 } }) });
       click(root.querySelector('#btn-ability-sweep'));
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await advanceStagger(t, 260, 1);
       assert.ok(document.querySelectorAll('.battle-swing-trail').length > 0, "Sweep's traveling sprite should always carry a trail");
     } finally {
       Math.random = originalRandom;
     }
+  });
+
+  // Regression test for the reported bug: "while faultline is going from
+  // enemy to enemy you should still be able to use other abilities, seems
+  // like it pauses you being able to do other stuff." Before this fix,
+  // playerUseAbility (js/screens/battleScreen.js) held abilityActionInFlight
+  // for Faultline's *entire* staggered sweep (one SWEEP_STAGGER_MS per living
+  // enemy), and Attack/Flee/every other ability early-returned on that same
+  // flag - so a big enemy group locked the player out of everything else for
+  // over a second, worst exactly when Faultline was most worth casting.
+  await t.test('Attack still works while Faultline\'s staggered sweep is still mid-flight', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+    const { root } = await mountBattle(['boar', 'boar', 'boar'], { state: baseState({ player: { ...createNewGame().player, level: 8 } }) });
+    const hpText = (i) => root.querySelector(`#battle-monster-hp-text-${i}`).textContent;
+    const before = [hpText(0), hpText(1), hpText(2)];
+    click(root.querySelector('#btn-ability-sweep'));
+    // Only the first target has been hit so far - the sweep still has two
+    // more staggered hits pending (see the "hits each target in sequence"
+    // test above for the same one-step timing).
+    await advanceStagger(t, 260, 1);
+    assert.notEqual(hpText(0), before[0], 'sanity check: the first Faultline hit should have landed');
+    assert.equal(hpText(1), before[1], 'sanity check: the sweep should still be mid-flight, not finished');
+    // Attack (button) must not be blocked here - this is the guard the bug
+    // report is about.
+    click(root.querySelector('#btn-attack'));
+    assert.match(root.querySelector('#battle-log').textContent, /You hit/, 'Attack should have landed even while Faultline\'s sweep is still staggering');
+    // The sweep itself must still finish landing its remaining hits - the
+    // fix must not have aborted or skipped them.
+    await advanceStagger(t, 260, 2);
+    assert.notEqual(hpText(1), before[1], 'the second Faultline target should still get hit after Attack interrupts the stagger');
+    assert.notEqual(hpText(2), before[2], 'the third Faultline target should still get hit after Attack interrupts the stagger');
+  });
+
+  await t.test('Flee still works while Faultline\'s staggered sweep is still mid-flight', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+    const { root } = await mountBattle(['boar', 'boar', 'boar'], { state: baseState({ player: { ...createNewGame().player, level: 8 } }) });
+    click(root.querySelector('#btn-ability-sweep'));
+    await advanceStagger(t, 260, 1);
+    click(root.querySelector('#btn-flee'));
+    assert.match(root.querySelector('#battle-log').textContent, /You got away safely!/, 'Flee should work even while Faultline\'s sweep is still staggering');
   });
 
   await t.test('a crit killing blow can play the split-death animation instead of the spin', async () => {
@@ -791,14 +935,15 @@ test('battleScreen DOM', async (t) => {
     assert.equal(numberEl.style.animationDuration, '1400ms');
   });
 
-  await t.test('a landed parry sets the PERFECT!/PARRY! badge\'s animation-duration inline, the value its CSS animation actually runs on', async () => {
+  await t.test('a landed parry sets the PERFECT!/PARRY! badge\'s animation-duration inline, the value its CSS animation actually runs on', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     // Same hazard again, for playPerfectTimingEffect()'s own
     // PERFECT_TIMING_BADGE_MS (900ms as of this writing) and
     // .battle-perfect-timing-badge in css/styles.css.
     const { root } = await mountBattle(['boar'], { monsterOverrides: [{ speed: 1000 }] });
     const fill = root.querySelector('#battle-monster-atb-fill-0');
-    const windupStart = await waitForWindupStart(fill);
-    await waitUntilZoneMidpoint(windupStart);
+    const windupStart = await advanceUntilWindupStarts(t, fill);
+    advanceToZoneMidpoint(t, windupStart);
     keydown('s');
     assert.match(root.querySelector('#battle-log').textContent, /You parry/);
     const badge = document.querySelector('.battle-perfect-timing-badge-parry');
@@ -828,14 +973,15 @@ test('battleScreen DOM', async (t) => {
   // now gives every popup on a zone its own horizontal column via
   // claimPopupColumn() - this exercises that through a real double-Attack
   // rather than reaching into the unexported allocator.
-  await t.test('two damage numbers landing close together on the same target end up in different columns, not stacked', async () => {
+  await t.test('two damage numbers landing close together on the same target end up in different columns, not stacked', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar']);
     click(root.querySelector('#btn-attack'));
     // attackStreak is now 1, so the cooldown this hit set is
     // attackCooldownMsForStreak(1) = 500 + 1*200 = 700ms, ticking down
-    // 300ms per tick() - clears on the 3rd tick (900ms). Waited well past
+    // 300ms per tick() - clears on the 3rd tick (900ms). Advanced well past
     // that but still comfortably inside the number's own 1400ms lifetime.
-    await new Promise((resolve) => setTimeout(resolve, 950));
+    t.mock.timers.tick(950);
     click(root.querySelector('#btn-attack'));
     const numbers = document.querySelectorAll('.battle-damage-number');
     assert.equal(numbers.length, 2, 'expected both hits\' numbers still on stage at once');
@@ -863,16 +1009,18 @@ test('battleScreen DOM', async (t) => {
     assert.equal(root.querySelector('#battle-dps').textContent, 'DPS: 0.0');
   });
 
-  await t.test('the DPS meter climbs above zero once damage has been dealt and a tick has passed', async () => {
+  await t.test('the DPS meter climbs above zero once damage has been dealt and a tick has passed', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar']);
     click(root.querySelector('#btn-attack'));
-    await new Promise((resolve) => setTimeout(resolve, 350)); // let one 300ms tick fire
+    t.mock.timers.tick(350); // let one 300ms tick fire
     const dpsText = root.querySelector('#battle-dps').textContent;
     assert.match(dpsText, /^DPS: \d+\.\d$/);
     assert.ok(parseFloat(dpsText.slice('DPS: '.length)) > 0, `expected a positive DPS reading, got "${dpsText}"`);
   });
 
-  await t.test('action buttons stay on screen but are inert during the post-battle pause', async () => {
+  await t.test('action buttons stay on screen but are inert during the post-battle pause', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     // Raised 2026-08-31: buttons used to be cleared the instant the battle
     // ended; now they're deliberately left in place (see updateMenu()) so
     // the whole action bar fades away together with the dialog instead of
@@ -886,10 +1034,88 @@ test('battleScreen DOM', async (t) => {
     const logAfterKill = root.querySelector('#battle-log').textContent;
     click(attackBtn); // should be a no-op now, not a second attack
     assert.equal(root.querySelector('#battle-log').textContent, logAfterKill, 'clicking Attack again after the battle ended should not log another hit');
-    // Battle-ending pause now waits out DAMAGE_NUMBER_DURATION_MS (1400ms)
+    // Battle-ending pause waits out DAMAGE_NUMBER_DURATION_MS (1400ms)
     // before the exit animation, plus EXIT_ANIM_MS (400ms) - see endBattle().
-    await new Promise((resolve) => setTimeout(resolve, 1900));
+    // Both setTimeouts are scheduled synchronously up front (not a chain),
+    // so a single tick() covers both.
+    t.mock.timers.tick(1900);
     assert.equal(battleEnds.length, 1, 'onBattleEnd should fire exactly once, not twice from the extra click');
+  });
+
+  // Covers the totalDamageDealt argument onBattleEnd now carries (see
+  // js/screens/battleScreen.js's endBattle()) - feeds js/main.js's
+  // battle_end telemetry event, which the DPS chart screen reads back.
+  // Exercises two of the several damage-application call sites this needed
+  // auditing across (a basic Attack, then a single-target ability), fixes
+  // Math.random so neither roll's variance/crit is a moving target, and
+  // cross-checks the reported total against the same numbers the battle log
+  // itself displayed for those two hits - not just "greater than zero".
+  await t.test('onBattleEnd reports total player damage summed across a basic attack and an ability hit', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+    const originalRandom = Math.random;
+    Math.random = () => 0.99; // deterministic non-crit rolls for both hits
+    try {
+      const state = baseState({ player: { ...createNewGame().player, level: 2 } }); // unlocks Impale ('stab')
+      const { root, battleEnds } = await mountBattle(['boar'], { state, monsterOverrides: [{ hp: 9999 }] });
+
+      click(root.querySelector('#btn-attack'));
+      const attackDamage = Number(root.querySelector('#battle-log').textContent.match(/for (\d+)\.$/)[1]);
+      assert.ok(attackDamage > 0, 'sanity check: the basic attack should have logged a real damage number');
+
+      click(root.querySelector('#btn-ability-stab'));
+      const logLines = [...root.querySelectorAll('#battle-log div')].map((div) => div.textContent);
+      const abilityDamage = Number(logLines[logLines.length - 1].match(/for (\d+)[.!]$/)[1]);
+      assert.ok(abilityDamage > 0, 'sanity check: the ability should have logged a real damage number');
+
+      // Monster is left alive (hp: 9999) - flee to end the battle without a
+      // third, unaccounted-for hit muddying the expected total.
+      click(root.querySelector('#btn-flee'));
+      t.mock.timers.tick(1300); // flee's own shorter exit-anim delay (see endBattle's battleEndHitAnimationMs)
+
+      assert.equal(battleEnds.length, 1);
+      const [outcome, , totalDamageDealt] = battleEnds[0];
+      assert.equal(outcome, 'fled');
+      assert.equal(totalDamageDealt, attackDamage + abilityDamage);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  // Regression coverage for a gap found in review: applyOnHitEffects()'s
+  // elemental-proc branch reduces target.hp directly (`target.hp =
+  // Math.max(0, target.hp - procDamage)`), a damage-application site that
+  // doesn't go through any of the resolve*() functions the other paths share
+  // - easy to miss by grepping for `monsterHp` alone, which is exactly how
+  // it was missed on the first pass here. Math.random forced low (0.01) so
+  // both the Attack's crit roll and the Ember Ring's own proc-chance roll
+  // are guaranteed to fire, making the expected total fully deterministic.
+  await t.test('onBattleEnd includes elemental proc damage from equipped gear (Ember Ring), not just the triggering swing', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
+    const originalRandom = Math.random;
+    Math.random = () => 0.01; // guarantees both a crit and the Ember Ring's proc roll
+    try {
+      const state = baseState();
+      state.equipment.ring1 = 'emberRing'; // stats: { elementalProcChance: 20, elementalProcDamage: 6 } - see js/data/items.js
+      const { root, battleEnds } = await mountBattle(['boar'], { state, monsterOverrides: [{ hp: 9999 }] });
+
+      click(root.querySelector('#btn-attack'));
+      const logLines = [...root.querySelectorAll('#battle-log div')].map((div) => div.textContent);
+      const hitLine = logLines.find((line) => line.includes('You hit'));
+      const procLine = logLines.find((line) => line.includes('Bonus fire damage'));
+      assert.ok(procLine, 'expected the Ember Ring\'s proc to fire and log its own line');
+      const attackDamage = Number(hitLine.match(/for (\d+)[.!]$/)[1]);
+      const procDamage = Number(procLine.match(/: (\d+)!$/)[1]);
+      assert.equal(procDamage, 6, 'Ember Ring\'s elementalProcDamage is a flat 6, unaffected by the attack\'s own crit/streak roll');
+
+      click(root.querySelector('#btn-flee'));
+      t.mock.timers.tick(1300);
+
+      assert.equal(battleEnds.length, 1);
+      const [, , totalDamageDealt] = battleEnds[0];
+      assert.equal(totalDamageDealt, attackDamage + procDamage);
+    } finally {
+      Math.random = originalRandom;
+    }
   });
 
   await t.test('unmount removes the keydown listener - a keypress after unmount is inert', async () => {
@@ -972,70 +1198,77 @@ test('battleScreen DOM', async (t) => {
   // has cleared. Gated behind the mechanicExplainersBeta feature flag (off
   // by default - see js/data/abilityExplainers.js's header for why the
   // content is still empty placeholders).
-  async function triggerFalloff(root) {
+  function triggerFalloff(t, root) {
     click(root.querySelector('#btn-attack'));
-    await new Promise((resolve) => setTimeout(resolve, 950));
+    t.mock.timers.tick(950);
     click(root.querySelector('#btn-attack'));
   }
 
-  await t.test('the second consecutive Attack opens the falloff explainer and pauses the battle, when the beta flag is on', async () => {
+  await t.test('the second consecutive Attack opens the falloff explainer and pauses the battle, when the beta flag is on', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const state = baseState();
     state.settings.featureFlags.mechanicExplainersBeta = true;
     const { root } = await mountBattle(['boar'], { state });
     const overlay = root.querySelector('#battle-explainer-overlay');
     assert.equal(overlay.hidden, true);
-    await triggerFalloff(root);
+    triggerFalloff(t, root);
     assert.equal(overlay.hidden, false);
     assert.equal(root.querySelector('#battle-paused-overlay').hidden, false);
   });
 
-  await t.test('the falloff explainer never opens when the beta flag is off', async () => {
+  await t.test('the falloff explainer never opens when the beta flag is off', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { state: baseState() });
-    await triggerFalloff(root);
+    triggerFalloff(t, root);
     assert.equal(root.querySelector('#battle-explainer-overlay').hidden, true);
   });
 
-  await t.test('the falloff explainer only opens once ever - marked seen in state.seenScreens, not reshown on a later decayed hit', async () => {
+  await t.test('the falloff explainer only opens once ever - marked seen in state.seenScreens, not reshown on a later decayed hit', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const state = baseState();
     state.settings.featureFlags.mechanicExplainersBeta = true;
     state.seenScreens = { 'mechanic:attackFalloff': true };
     const { root } = await mountBattle(['boar'], { state });
-    await triggerFalloff(root);
+    triggerFalloff(t, root);
     assert.equal(root.querySelector('#battle-explainer-overlay').hidden, true);
   });
 
-  await t.test('the falloff explainer marks itself seen in state.seenScreens once opened', async () => {
+  await t.test('the falloff explainer marks itself seen in state.seenScreens once opened', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const state = baseState();
     state.settings.featureFlags.mechanicExplainersBeta = true;
     const { root } = await mountBattle(['boar'], { state });
-    await triggerFalloff(root);
+    triggerFalloff(t, root);
     assert.equal(state.seenScreens['mechanic:attackFalloff'], true);
   });
 
-  await t.test('"Got it" closes the falloff explainer and resumes the battle', async () => {
+  await t.test('"Got it" closes the falloff explainer and resumes the battle', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const state = baseState();
     state.settings.featureFlags.mechanicExplainersBeta = true;
     const { root } = await mountBattle(['boar'], { state });
-    await triggerFalloff(root);
+    triggerFalloff(t, root);
     click(root.querySelector('#battle-explainer-close'));
     assert.equal(root.querySelector('#battle-explainer-overlay').hidden, true);
     assert.equal(root.querySelector('#battle-paused-overlay').hidden, true);
   });
 
-  await t.test('Escape closes the falloff explainer', async () => {
+  await t.test('Escape closes the falloff explainer', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const state = baseState();
     state.settings.featureFlags.mechanicExplainersBeta = true;
     const { root } = await mountBattle(['boar'], { state });
-    await triggerFalloff(root);
+    triggerFalloff(t, root);
     keydown('Escape');
     assert.equal(root.querySelector('#battle-explainer-overlay').hidden, true);
   });
 
-  await t.test('while the falloff explainer is open, Attack is a no-op', async () => {
+  await t.test('while the falloff explainer is open, Attack is a no-op', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const state = baseState();
     state.settings.featureFlags.mechanicExplainersBeta = true;
     const { root } = await mountBattle(['boar'], { state });
-    await triggerFalloff(root);
+    triggerFalloff(t, root);
     const hpBefore = root.querySelector('#battle-monster-hp-text-0').textContent;
     click(root.querySelector('#btn-attack'));
     keydown('a');
@@ -1092,7 +1325,8 @@ test('battleScreen DOM', async (t) => {
     }
   });
 
-  await t.test('Berserker Tonic\'s guaranteed crit only applies to the next hit, not the one after', async () => {
+  await t.test('Berserker Tonic\'s guaranteed crit only applies to the next hit, not the one after', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const originalRandom = Math.random;
     Math.random = () => 0.99;
     try {
@@ -1109,9 +1343,9 @@ test('battleScreen DOM', async (t) => {
       // Attack's own spam-cooldown (attackCooldownMsForStreak, streak 1 =
       // 700ms) blocks a same-tick second click - a disabled button doesn't
       // fire click handlers even via a dispatched event, matching real
-      // browser behavior. Wait past 3 ticks (900ms) so tick()'s own
+      // browser behavior. Advance past 3 ticks (900ms) so tick()'s own
       // `attackCooldownMs -= 300` decays it back to 0 first.
-      await new Promise((resolve) => setTimeout(resolve, 950));
+      t.mock.timers.tick(950);
       click(root.querySelector('#btn-attack')); // should NOT be a crit (0.99 never satisfies rollCrit on its own)
       const linesAfterSecond = root.querySelectorAll('#battle-log div').length;
       assert.equal(linesAfterSecond, linesAfterFirst + 1, 'second Attack should have logged exactly one new line');
@@ -1122,7 +1356,8 @@ test('battleScreen DOM', async (t) => {
     }
   });
 
-  await t.test('Second Wind survives a lethal hit at 1 HP', async () => {
+  await t.test('Second Wind survives a lethal hit at 1 HP', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root, state } = await mountBattle(['boar'], {
       state: baseState({
         player: { ...createNewGame().player, hp: 1 },
@@ -1133,16 +1368,13 @@ test('battleScreen DOM', async (t) => {
     });
     click(root.querySelector('#btn-item'));
     click(root.querySelector('button[data-slot="0"]'));
-    // Menu stays open after a pick now - close it so combat resumes at
-    // full speed (300ms ticks) before the real-time waits below, which
-    // are tuned for that cadence, not the item menu's 25% slow-mo.
+    // Menu stays open after a pick now - close it so combat resumes at full
+    // speed (300ms ticks) instead of the item menu's 25% slow-mo.
     keydown('Escape');
     // Same unparried-hit forcing pattern as the existing "a Retribution
-    // Charm reflects damage..." test above: let the windup naturally
-    // complete without pressing parry, polling for the real outcome instead
-    // of guessing how long tick()'s own isWindupComplete poll takes under
-    // CI load.
-    await waitForCondition(
+    // Charm reflects damage..." test above.
+    await advanceUntil(
+      t,
       () => /Second Wind kicks in/.test(root.querySelector('#battle-log').textContent),
       'the unparried attack to resolve and Second Wind to kick in',
     );
@@ -1176,7 +1408,8 @@ test('battleScreen DOM', async (t) => {
     assert.equal(lacerateBtn.disabled, false, 'Lacerate should stay clickable during its own retrigger window, despite being on cooldown');
   });
 
-  await t.test('the retrigger glow gets a distinct flash class once the window reaches its sweet-spot sub-range', async () => {
+  await t.test('the retrigger glow gets a distinct flash class once the window reaches its sweet-spot sub-range', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     // High HP override: Lacerate's own delayed bleed tick (900ms after use,
     // ~75% into this 1200ms retrigger window) would otherwise finish off a
     // regular boar and end the battle before the window's own 80-100%
@@ -1187,31 +1420,35 @@ test('battleScreen DOM', async (t) => {
       monsterOverrides: [{ hp: 100000 }],
     });
     click(root.querySelector('#btn-ability-slash'));
-    // Poll rather than wait for a fixed delay - the flash only appears on
-    // whichever 300ms tick's render happens to land inside the sweet spot's
-    // sub-range (see abilityButtonEntries()'s own comment on why this can't
-    // be a precisely-timed one-shot like the parry zone's pulse), so the
-    // exact real-time offset isn't fixed the way the retrigger press itself
-    // is. Bounded past the window's own 1200ms so a genuine regression
-    // still fails instead of hanging.
-    const pollStart = Date.now();
+    // The flash only appears on whichever 300ms tick's render happens to
+    // land inside the sweet spot's sub-range (see abilityButtonEntries()'s
+    // own comment on why this can't be a precisely-timed one-shot like the
+    // parry zone's pulse) - step tick-by-tick rather than jumping straight
+    // to a computed offset, checking after each one. 6 ticks (1800ms)
+    // covers the whole 1200ms window with margin, so a genuine regression
+    // still fails instead of the loop silently exhausting into a false pass.
     let sawFlash = false;
-    while (Date.now() - pollStart < 1500) {
-      const btn = root.querySelector('#btn-ability-slash');
-      if (btn?.classList.contains('battle-ability-button-retrigger-sweetspot')) {
+    for (let i = 0; i < 6; i++) {
+      t.mock.timers.tick(TICK_MS);
+      if (root.querySelector('#btn-ability-slash')?.classList.contains('battle-ability-button-retrigger-sweetspot')) {
         sawFlash = true;
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, 20));
     }
     assert.ok(sawFlash, 'expected the sweet-spot flash class to appear at some point during the retrigger window');
   });
 
-  await t.test('landing the re-press inside the sweet spot buffs the other abilities', async () => {
+  await t.test('landing the re-press inside the sweet spot buffs the other abilities', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { state: baseState({ player: { ...createNewGame().player, level: 6 } }) });
     click(root.querySelector('#btn-ability-slash'));
-    // The retrigger window is 1200ms with an 80-100% sweet spot - wait to 1100ms in.
-    await new Promise((resolve) => setTimeout(resolve, 1100));
+    // The retrigger window is 1200ms with an 80-100% sweet spot - advance to
+    // 1100ms in. openLacerateRetriggerWindow() (js/screens/battleScreen.js)
+    // stamps lacerateRetriggerStartedAt synchronously inside the click above,
+    // before this tick() call - not inside it - so this is a plain "measure
+    // forward from an already-correct stamp" advance, not at risk of the
+    // stamp-and-measure-in-one-batch hazard this file's header describes.
+    t.mock.timers.tick(1100);
     // Same live-button caveat as above: this re-press still lands correctly
     // even on a stale reference (the click handler's closure over the
     // ability id doesn't depend on DOM attachment), but re-query for the
@@ -1229,19 +1466,21 @@ test('battleScreen DOM', async (t) => {
     );
   });
 
-  await t.test('the "3" key also lands the re-press during Lacerate\'s window, not just clicking its button', async () => {
+  await t.test('the "3" key also lands the re-press during Lacerate\'s window, not just clicking its button', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { state: baseState({ player: { ...createNewGame().player, level: 6 } }) });
     // Level 6 unlocks stab(1)/chop(2)/slash(3) - Lacerate is slot 3.
     // No ATB gate to wait past anymore (see the ability-GCD rework) - a
     // fresh battle starts every ability off cooldown, so "3" lands on the
     // very first press.
     keydown('3');
-    await new Promise((resolve) => setTimeout(resolve, 1100));
+    t.mock.timers.tick(1100);
     keydown('3');
     assert.match(root.querySelector('#battle-buff-indicator').textContent, /Buffed/);
   });
 
-  await t.test('Lacerate\'s retrigger window still wins even after its own cooldown clears first (confirmed intentional, not a fresh re-cast)', async () => {
+  await t.test('Lacerate\'s retrigger window still wins even after its own cooldown clears first (confirmed intentional, not a fresh re-cast)', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     // speed: 22 pushes Lacerate's own cooldown (the bare speed-scaled GCD -
     // see abilityGcdMsForSpeed) down to its 500ms floor, well under the
     // 1200ms retrigger window - so by the time of the re-press below, a
@@ -1259,15 +1498,16 @@ test('battleScreen DOM', async (t) => {
     // By ~600ms in, Lacerate's own 500ms-floor cooldown has already ticked
     // down to 0 (tick() decrements every 300ms) - but the 1200ms retrigger
     // window opened by that first press is still open at this 1100ms mark
-    // (same wait the sweet-spot re-press tests above use), so this re-press
-    // lands squarely in the overlap between "cooldown cleared" and
+    // (same advance the sweet-spot re-press tests above use), so this
+    // re-press lands squarely in the overlap between "cooldown cleared" and
     // "retrigger window still open."
-    await new Promise((resolve) => setTimeout(resolve, 1100));
+    t.mock.timers.tick(1100);
     keydown('3');
     assert.match(root.querySelector('#battle-buff-indicator').textContent, /Buffed/);
   });
 
-  await t.test('missing the re-press window entirely (letting it lapse) grants no buff', async () => {
+  await t.test('missing the re-press window entirely (letting it lapse) grants no buff', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { state: baseState({ player: { ...createNewGame().player, level: 6 } }) });
     click(root.querySelector('#btn-ability-slash'));
     // Past the 1200ms window plus one more full 300ms tick: tick() now
@@ -1278,14 +1518,15 @@ test('battleScreen DOM', async (t) => {
     // after that render. The glow doesn't actually clear from the DOM
     // until the following tick's own render, one 300ms tick later than it
     // used to.
-    await new Promise((resolve) => setTimeout(resolve, 1800));
+    t.mock.timers.tick(1800);
     assert.equal(root.querySelector('#battle-buff-indicator').textContent, '');
     // Re-query rather than reuse a pre-click reference - see the comment on
     // the first retrigger test above for why.
     assert.equal(root.querySelector('#btn-ability-slash').classList.contains('battle-ability-button-retrigger'), false);
   });
 
-  await t.test('landing the re-press while Super Scream\'s buff is already active refreshes it instead of stacking', async () => {
+  await t.test('landing the re-press while Super Scream\'s buff is already active refreshes it instead of stacking', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { root } = await mountBattle(['boar'], { state: baseState({ player: { ...createNewGame().player, level: 10 } }) });
     click(root.querySelector('#btn-ability-superScream'));
     const buffTextAfterScream = root.querySelector('#battle-buff-indicator').textContent;
@@ -1298,7 +1539,7 @@ test('battleScreen DOM', async (t) => {
 
     const lacerateBtn = root.querySelector('#btn-ability-slash');
     click(lacerateBtn);
-    await new Promise((resolve) => setTimeout(resolve, 1100));
+    t.mock.timers.tick(1100);
     click(lacerateBtn);
     // Lacerate's own buffDurationMs (9s) is shorter than Super Scream's
     // remaining ~12s at this point, so a real stack would show >12s and a

@@ -66,9 +66,11 @@ of the three-session balance queue above — separate initiative):**
   entry in the Multi-zone progression section below (under the original
   uncap bullet).
 - ~~**Deploy workflow: pin the wrangler CLI version**~~ **shipped
-  2026-09-04 (0.24.2, hotfixed as 0.24.3 the same day)** — the minor CI
-  cleanup (`--commit-dirty=true`) is still deferred, not urgent.
-  See the Infrastructure / deployment section below.
+  2026-09-04 (0.24.2, hotfixed as 0.24.3 the same day)**, and the minor
+  `--commit-dirty=true` CI cleanup this line used to call "still
+  deferred, not urgent" **also shipped, 2026-09-07 (0.26.7)** — this
+  index line was never updated when that landed. See the Infrastructure
+  / deployment section below.
 - **Puzzle mechanics, raised 2026-09-04** — water picked as the flavor to
   explore first; a first brainstorming pass this same session captured
   trench-fill/poison-drain (share one flood-fill engine, no new painter
@@ -90,7 +92,32 @@ of the three-session balance queue above — separate initiative):**
   - New: NG+ cycle should raise axe/pick/canoe drop chance from regular mobs (raw idea); possibly ties to roaming enemies gated to NG+2+ (raw idea).
   - ~~**Parry window/simulator-trust gap, sharpened**~~ — **Shipped 2026-09-01 as session 1 of the balance-tuning queue (see the top summary above).** Duplicate leftover index line, never removed when that shipped.
   - Terrain painter: zone-switcher (deliberately deferred), dungeon-interior painting (in progress/done, check session history).
-  - Staged/tool-sequence-aware reachability checker — still open, algorithm not designed.
+  - ~~**Terrain painter: support multiple `exit` tiles per dungeon interior**~~ — **shipped 2026-09-13 (0.36.0)**, exactly as scoped when raised the same day: `saveNewDungeonBtn`'s `exitCount !== 1` check became `exitCount < 1`, the first `exit` tile in scan order becomes `startPosition`, and `tests/superBosses.test.js`'s reachability assertion loosened to `>= 1`. See CHANGELOG.md's 0.36.0 entry.
+  - ~~Staged/tool-sequence-aware reachability checker~~ — **shipped
+    2026-09-13 (0.35.3)**: `checkProgression()`
+    (`tools/terrain-painter/reachability.js`) rewritten as a fixed-point/
+    iterative-unlock algorithm — checks whether every tool dungeon
+    eventually unlocks through *some* order, not a fixed
+    axe→pick→canoe→portal→dragon sequence. See CHANGELOG.md's 0.35.3
+    entry.
+  - ~~Wilderness "Check Map"'s own animated reveal~~ — **shipped
+    2026-09-13 (0.35.4)**: `checkProgression()`
+    (`tools/terrain-painter/reachability.js`) now also returns `passes`
+    (the `reached` set after each flood, in order), and `checkMap()`
+    (`tools/terrain-painter/painter.js`) replays them wave by wave — each
+    wave's new tiles reveal in BFS order with the same teal "exploring"
+    tint the dungeon check uses, settling into their real tint before the
+    next wave starts. A new `checkMapSpeed` slider controls the pace. See
+    CHANGELOG.md's 0.35.4 entry.
+  - ~~"Save New Dungeon to Server" re-prompts every single save~~ —
+    **shipped 2026-09-13 (0.35.4)**: `handleCreateDungeon`
+    (`tools/terrain-painter/server.js`) now registers the new file in
+    `SINGLE_MAP_FILES` immediately, and `saveNewDungeonBtn`'s success
+    handler (`tools/terrain-painter/painter.js`) flips `isNewDungeon` to
+    `false` and switches the UI to the normal "Save to Server" button —
+    so only the first save prompts for `guardianMonsterId`; every save
+    after that patches LEGEND/ROWS via `/api/patch-single-map` like any
+    other existing single map. See CHANGELOG.md's 0.35.4 entry.
   - Non-store zone-1 loot (unique finds outside the shop) — open.
 - **Painter tool: paint monster placement** (big idea, not designed) — per-tile/region monster tables as paintable layers.
 - **Roaming visible enemies + dragon difficulty scaling** (big, needs design pass) — visible overworld entities, cross-screen movement, opt-in power-scaling dragon mode (standard dragon fight stays fixed). Possible dependency on a scrolling/camera rendering rewrite (also raised independently for mobile-responsive viewport).
@@ -317,7 +344,13 @@ same-day items below; these are the ones left open):**
   the super-boss pass spec above** - three risk/reward accessory ideas,
   none designed yet, explicitly not part of the super-boss pass itself:
   (1) a ring that suppresses random wilderness/dungeon encounters entirely
-  (pure convenience/QoL, no combat-balance angle to it); (2) a ring that
+  (pure convenience/QoL, no combat-balance angle to it) - **its
+  composition with the worn-path encounter discount was designed
+  2026-09-12** alongside that discount (see
+  `docs/superpowers/specs/2026-09-12-worn-path-encounter-discount-
+  design.md`'s "ring/charm question" section: they stack multiplicatively
+  and don't replace the case for each other), but the ring itself
+  (strength, drop source, NG+ gating) is still not scoped or built; (2) a ring that
   deliberately makes monsters harder (an opt-in difficulty-up accessory -
   presumably paired with better rewards for wearing it, which needs its
   own design rather than just a flat downside); (3) a ring/charm that
@@ -358,8 +391,9 @@ same-day items below; these are the ones left open):**
     it avoids freezing by lurching, which is its own stutter, and the
     obvious single metric would have shipped it. Do this again before
     optimising anything in this loop.
-- **Delete the DOM map renderer scaffolding, raised 2026-09-10.** See
-  the "Delete the DOM map renderer scaffolding" section below.
+- ~~**Delete the DOM map renderer scaffolding**~~, raised 2026-09-10 —
+  **shipped 2026-09-13 (0.36.0)**. See the "Delete the DOM map renderer
+  scaffolding" section below for the full removal list.
 - ~~**Residual walk micro-stutter, raised 2026-09-10.**~~ — **fixed
   2026-09-10 (0.32.4).** It was not the two-rAF-loops thing this entry
   used to blame, and merging those loops was measured and found to buy
@@ -376,9 +410,10 @@ same-day items below; these are the ones left open):**
   pure draw list (`js/systems/mapDrawList.js`), painted by
   `js/screens/mapCanvasRenderer.js`. See BACKLOG_SHIPPED.md's "Map
   render performance / canvas map renderer" section for the full
-  investigation and elimination log. **Two follow-ups from it are still
-  open — see "Delete the DOM map renderer scaffolding" and "Hero draws
-  over obstacles in the row below" below.**
+  investigation and elimination log. **One follow-up from it is still
+  open — see "Hero draws over obstacles in the row below" below** (the
+  other, deleting the DOM renderer scaffolding, shipped 2026-09-13,
+  0.36.0 — see that section further up this file).
 - ~~**Boat proximity-hint text said "clear" the water, which doesn't make
   sense for a boat**~~ — **shipped 2026-09-09 (0.26.14)**. See the fuller
   entry in the Bugs / open questions section below.
@@ -405,6 +440,63 @@ same-day items below; these are the ones left open):**
   the full history.
 
 **New threads raised 2026-09-10:**
+- ~~**`battleSpecialAttacks.test.js` flakes under parallel load.**~~
+  **Shipped 2026-09-12.** Raised 2026-09-10; flaked again the same way on
+  2026-09-12 (timed out at 20.3s, just past the 20000ms deadline a prior
+  fix, 8e74e53, had raised it to) - confirming the earlier fix only
+  bought margin rather than removing the race. Rewrote the whole file
+  onto `node:test`'s built-in `t.mock.timers` (`setInterval`/`setTimeout`/
+  `Date`), so `battleScreen.js`'s real `setInterval(tick, 300)` only ever
+  fires when the test explicitly advances a fake clock - no real
+  waiting, no CI-load dependency. `battleScreen.js` itself is unchanged.
+  Runtime dropped from 20-40+ real seconds to well under 1 second.
+  Surfaced one genuine, unrelated hazard along the way (not a mock-timer
+  bug): with the fake clock reliably driving the monster through
+  multiple attack turns per test, an occasional critical hit for exactly
+  the player's starting 20 HP could end the battle mid-assertion -
+  fixed by giving the player effectively unkillable HP in this file's
+  fixtures, since these tests are about whether a special-attack effect
+  lands, not survival odds. `tests/battleScreenDom.test.js` had its own,
+  separate real-wall-clock timing tests (89 subtests, 42+ of the suite's
+  ~43 real seconds) - converted the same day in a follow-up pass (see the
+  next entry below) once this file's own conversion proved the approach
+  out.
+- **`tests/battleScreenDom.test.js` converted to `t.mock.timers` too,
+  same day.** 42+s -> ~9s. Six Lacerate-retrigger-window subtests
+  deliberately left on real timers - that mechanism reads
+  `performance.now()`, not `Date.now()`, and `mock.timers` has no
+  `performance` entry in its supported apis on this Node version
+  (confirmed by direct experiment: `enable({apis:['performance']})`
+  throws `ERR_INVALID_ARG_VALUE`). Landed via a PR
+  (`test/battle-screen-dom-fake-timers`) rather than straight to `main`,
+  specifically so the suite could be re-run repeatedly against GitHub's
+  own runner - the actual environment this class of flake shows up in,
+  not a local machine - before merging; see the new
+  `.github/workflows/test.yml` (tests-only, no deploy, `pull_request`-
+  triggered) added alongside it for exactly that.
+- **The suite's last two real-wall-clock waits converted too, same
+  day** (`tests/celebrationEffect.test.js`, `tests/mapScreenDom.test.js`
+  - simple single `setTimeout` calls, no `Date.now()`/chaining
+  complexity). Doesn't move the full suite's wall-clock time - both
+  waits were already shorter than `battleScreenDom.test.js`'s own
+  runtime under `node --test`'s file-level concurrency, so they were
+  already hidden behind it - but removes their own residual flake risk.
+  The suite's real remaining bottleneck at the time was the six
+  Lacerate `performance.now()`-based tests (~7.6s of ~9-10s total) -
+  see the next entry for the resolution.
+- ~~**The six Lacerate-retrigger `performance.now()` tests, resolved.**~~
+  **Shipped 2026-09-12.** Checked whether a newer Node version adds
+  `performance` support to `mock.timers` first (it doesn't, per the
+  current docs, and there's no open feature request for it either) -
+  discussed with Timothy, who picked switching `lacerateRetriggerStartedAt`
+  (`js/screens/battleScreen.js`) from `performance.now()` to `Date.now()`
+  over hand-rolling a second fake clock: it matches every other elapsed-
+  time read in the same file, no comment ever explained the different
+  clock, and a ~1.2s UI window has no real use for `performance.now()`'s
+  extra precision. All 89 subtests in `tests/battleScreenDom.test.js` now
+  run on `t.mock.timers`. That file: ~9s -> ~2s. Stress-tested 125
+  consecutive clean local runs plus repeated real-CI-runner checks (same
+  PR-workflow process as the other conversions) before merging.
 - **Worn-path trail costs a full repaint every frame, raised 2026-09-10
   (after 0.32.4).** Timothy: "when I make the window really really big
   and walk around I get frame drops ... when I walk away from an area
@@ -429,10 +521,10 @@ same-day items below; these are the ones left open):**
 - ~~**Instant-resolve (no fight dialog) only fires on very weak solo
   mobs**~~ — **shipped 2026-09-10 (0.30.0)**. Groups now qualify too,
   when every monster in them is outclassed. See BACKLOG_SHIPPED.md.
-- **Faultline's chain blocks every other input while it resolves** —
-  you can't act until the sweep has finished walking the whole enemy
-  row. See the "Faultline's sweep locks out other abilities" section
-  below. Not started.
+- ~~**Faultline's chain blocks every other input while it resolves**~~ —
+  **shipped 2026-09-13 (0.36.0)**. See the "Faultline's sweep locks out
+  other abilities" section below for the fix (and the one deliberately
+  deferred follow-up it left behind).
 - **Watch whether 20s buff potions stack too hard** — duration went
   12s → 20s in 0.27.4. Since different potions stack, a two- or
   three-potion opening now comfortably spans a whole fight rather than
@@ -457,6 +549,90 @@ same-day items below; these are the ones left open):**
   explicitly-marked internal entry, or treat `tests/**` as doc-like in
   the workflow's non-doc filter. Not urgent — it has cost one awkward
   entry, not a broken deploy.
+
+**New threads raised 2026-09-12:**
+- **Canvas map rendering is soft at non-100% browser zoom, raised
+  2026-09-12** while chasing the dpr-resync bug below. Timothy, after
+  confirming that fix worked: "it all gets better again if I go back to
+  default 100% browser zoom size" - the softness reappears at any other
+  zoom level and clears instantly on its own once back at 100%, with no
+  refresh needed, which rules out a caching bug (that variant is the one
+  just fixed - see 0.33.2 in CHANGELOG.md). This looks like the ordinary,
+  near-universal canvas-rendering characteristic: at a fractional device
+  pixel ratio, tile edges and glyphs land on fractional device pixels and
+  the browser blends rather than draws them crisply; 100% zoom (or any
+  other zoom landing back on a whole-pixel ratio) has nothing to blend.
+  Properly addressing it would mean snapping every draw position to a
+  whole device pixel at arbitrary zoom levels - a materially bigger,
+  more invasive change than the resync fix, and arguably chasing a
+  limitation most canvas-based tile renderers just have. Not started;
+  not diagnosed further than the theory above.
+- **Boss/guardian-marker tile shows a black square background, sized
+  like an ordinary tile instead of the 4x guardian size, raised
+  2026-09-12** with a screenshot (a snake-emoji marker on a plain dark
+  square). Not yet investigated - unclear if this is `TILES.guardian`
+  itself misbehaving for a specific monster, a different marker tile
+  entirely, or something save/debug-character-specific. Timothy: "this
+  dragon should not have a background and be 4x the size like the tool
+  bosses."
+- **Horizontal line artifact two tiles below the player, raised
+  2026-09-12** with a screenshot (a thin seam across the worn-path
+  trail). Timothy's own hunch: "I think the horizontal line is related
+  to the cache issue" (the static-layer cache from 0.33.0) - plausible
+  given the cache's patch/scroll code works in tile-row strips, but not
+  yet investigated.
+- ~~**Worn paths could reduce encounter chance over time.**~~ **Shipped
+  2026-09-12.** Raised same-day; designed as a live collaboration (see
+  `docs/superpowers/specs/2026-09-12-worn-path-encounter-discount-
+  design.md`) rather than handed down as a spec. Discount matches the
+  visual trail-wear curve exactly (Timothy: "matches the visual
+  indicator exactly"), capped at 50% off per tile, no per-screen
+  aggregate cap, no NG+ tempering - all explicit calls, not oversights.
+  On by default with a Settings opt-out, plus a one-time hint banner
+  using Timothy's own wording. See CHANGELOG.
+  - **Parked, not built: limiting the discount to one "core route" per
+    screen** instead of a flat per-tile cap - Timothy floated this live
+    then deferred it ("I can always change/tweak/tune later"). Revisit
+    only if the flat per-tile cap turns out to feel too generous once a
+    screen gets fully paved.
+  - **Parked, not built: a ring/charm that suppresses random
+    encounters** - designed alongside the worn-path discount in the
+    same spec doc (composes multiplicatively, doesn't replace the case
+    for the per-tile discount) but not scoped or implemented this
+    round. See the Multi-zone progression section's own bullet for
+    this, and the spec doc's "ring/charm question" section for the
+    reasoning.
+
+**New threads raised 2026-09-13:**
+- **Superboss expansion follow-ups (simulator fidelity, cycle-sweep
+  coverage, debut-window gating), raised by final review.** Three
+  related threads out of the final whole-branch review of
+  `feature/superboss-expansion`; see the "Superboss expansion
+  follow-ups" section below. **The simulator-fidelity thread (the flat
+  6-potion cap) shipped 2026-09-13 (0.36.0)** — the other two
+  (midpoint sweep rows, debut-window ceiling) are still open.
+- ~~**Ring/charm equip slots should keep growing with NG+, raised
+  2026-09-13.**~~ **Shipped 2026-09-13 (0.36.0).** Timothy's own ask:
+  "I want to be able to have like 10 rings equipped and I'm okay if it
+  messes up balance... each NG+ you can equip two more rings. Also 1
+  more charm... no cap actually just increase rings by 2 and charm by
+  each cycle." Implemented exactly as specified — `2 + 2*cycle` ring
+  slots, `2 + 1*cycle` charm slots, uncapped, deliberately unbalanced.
+  See CHANGELOG.md's 0.36.0 entry and the Multi-zone progression
+  section's own ring/charm-idea-backlog bullet (a different, unrelated
+  thread — new ring/charm *items*, not slot count).
+- ~~**Battle DPS log + in-game chart, raised 2026-09-13.**~~ **Shipped
+  2026-09-13 (0.36.0).** Timothy: "let's make sure we have a log of
+  battle DPS and an in game chart so you can compare how you are doing
+  over time on regular mobs and bosses as you go through NG+ to see if
+  you are getting strong." New "DPS Chart" button in Settings plots
+  DPS-per-fight over time, colored by regular/boss/superboss, with NG+
+  cycle-boundary markers. See CHANGELOG.md's 0.36.0 entry. **Known
+  limitation, not addressed**: the telemetry buffer this reads from
+  caps at 2000 events across every event type (not just battles), so a
+  long play session may push early fights out of range before you go
+  looking for them — worth a dedicated look if the chart's history
+  ever feels too short in practice.
 
 ## Story / narrative
 
@@ -2041,7 +2217,18 @@ number). Confirmed live 2026-09-04 via a `?debug=level10` test character
 (`js/systems/debugCharacters.js`, added the same session) - Timothy
 played real battles against it and confirmed the fix looks right.
 
-### Player's own marker inherits the guardian's giant size when standing on a guardian tile, raised 2026-09-09
+### ~~Player's own marker inherits the guardian's giant size when standing on a guardian tile, raised 2026-09-09~~ - fixed 2026-09-12
+**Fixed** - by the time this was picked up, `js/screens/mapScreen.js` had
+already been split into `js/screens/mapDomRenderer.js` and
+`js/systems/mapDrawList.js` (the DOM-rendering and draw-list-building
+halves respectively), each with its own copy of the unconditional
+`GUARDIAN_PX` assignment this entry describes. Added the `&& !isPlayer`
+guard this entry called for in both places: `mapDomRenderer.js` line 269
+(`if ((tile === TILES.guardian || tile === TILES.boss) && !isPlayer)
+marker.style.fontSize = ...`) and `mapDrawList.js` line 213 (same guard on
+`sizePx = GUARDIAN_PX`). Original diagnosis (against the pre-split
+`mapScreen.js`) preserved below.
+
 Timothy: "when I go over a double size emoji my characters gets that big
 too which looks kind of silly." Root cause found by reading
 `js/screens/mapScreen.js`'s fullsize-marker branch (not reproduced live -
@@ -2697,7 +2884,33 @@ an invalid code format 400'd, an unused code 404'd, and the 60-second
 KV expiry was confirmed by actually waiting past it and re-checking.
 Pushed to `main` only after all of that passed.
 
-## Faultline's sweep locks out other abilities, raised 2026-09-10
+## ~~Faultline's sweep locks out other abilities~~, raised 2026-09-10, shipped 2026-09-13 (0.36.0)
+
+**Shipped 2026-09-13 (0.36.0).** Of the three plausible directions
+below, the "resolve everything up front, animate the stagger" option
+turned out unworkable: `updateHpBars()` redraws every monster's hp bar
+live from `mc.hp` on every call (including from `playerAttack`), so an
+Attack landing mid-sweep would have instantly revealed every remaining
+sweep target's already-applied damage, defeating the staggered-reveal
+visual a locked-down test relies on. Went with the "narrow the guard"
+option instead, verified safe with the advisor: `abilityActionInFlight`
+now releases right after Faultline's synchronous prelude (GCD, streak
+reset, swing animation) and before the stagger loop starts — every
+combatant-state mutation it protects is already done by then, so
+there's nothing left for a concurrent Attack/Flee/other ability to
+corrupt. A second Faultline press during its own stagger window is
+still guarded, now by a dedicated `aoeSweepInFlight` flag rather than
+the generic one (a generic per-ability-cooldown check was tried first
+and broke three existing widen-buff tests that rely on today's
+UI-layer-only cooldown enforcement). See CHANGELOG.md's 0.36.0 entry.
+
+**Left deliberately deferred**: the `extraTargetIndices` stagger loop
+(Sever's extra target, or any ability widened by Faultline's buff) has
+the identical lockout bug at a smaller scale. Fixing it would touch
+those abilities' own timing — out of scope for this pass, revisit if it
+gets reported.
+
+---
 
 Raised: "while faultine is going from enemy to enemey you shoudl still
 be able to use other ablities, seems like it pasues you being able to do
@@ -2740,7 +2953,22 @@ The shared ability GCD (`abilityGcdMsForSpeed`) already exists as the
 intended pacing limiter, which is an argument that this lockout is
 incidental rather than a designed cost.
 
-## Delete the DOM map renderer scaffolding, raised 2026-09-10
+## ~~Delete the DOM map renderer scaffolding~~, raised 2026-09-10, shipped 2026-09-13 (0.36.0)
+
+**Shipped 2026-09-13 (0.36.0)**, exactly as scoped below: the file,
+the `renderer` prop/resolution in `mapScreen.js`, and the dead CSS all
+removed; `mapScreen.js`'s renderer *interface* itself was kept (per
+this section's own closing note) rather than collapsed, now calling
+the canvas renderer directly instead of branching. `tests/
+mapScreenDom.test.js`'s pure-rendering assertions were removed and its
+behavior tests re-pointed at canvas, exactly as planned; `tests/
+celebrationEffect.test.js` needed a small rewrite too (jsdom has no
+canvas 2D context, so it can never hand back a real player-anchor
+rect under test — a new `__setPlayerScreenRectForTest` seam in
+`mapScreen.js` replaced querying a `.map-tile-player` element that no
+longer exists). See CHANGELOG.md's 0.36.0 entry.
+
+---
 
 The canvas map renderer (0.29.0) deliberately kept the old DOM/CSS-Grid
 renderer alive rather than deleting it, so the two could be A/B'd live
@@ -2867,3 +3095,50 @@ Note one thing before attempting it: the current per-cell order means a
 tile's ground clips its neighbour's trail stroke where the round cap
 overhangs the tile edge, so a naive floor/object split visibly changes
 how trails end at unvisited tiles. Check that against a real save.
+
+## Superboss expansion follow-ups (simulator fidelity, cycle-sweep coverage, debut-window gating), raised by final review, 2026-09-13
+
+Three related threads out of the final whole-branch code review of
+`feature/superboss-expansion`
+(`docs/superpowers/plans/2026-09-13-superboss-expansion.md`,
+`docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`),
+none of them blockers for that branch but all worth a real look before
+the next superboss pass:
+
+- ~~**The balance simulator's `--cycle-sweep` mode still doesn't model
+  sustained buff-tonic uptime or a potion budget above 6.**~~ —
+  **shipped 2026-09-13 (0.36.0)**: `CYCLE_SWEEP_POTION_BUDGET` (20,
+  matching the design spec's own "up to ~20 potions is fine" allowance)
+  replaced the flat `potions: 6` in both cycle-sweep builds. Confirmed
+  real signal, not just a bigger number: `superBossOne`'s NG+0 ceiling
+  build went 0%→100% win, NG+1 went 0%→83%. NG+2 is still 0% even with
+  the fix - the real save's known NG+2 win isn't fully reproduced yet,
+  so something else (the separately-tracked `stun`-modeling gap noted
+  elsewhere in this file is one live suspect) is still in play; this
+  thread only ever claimed the potion cap was "the leading suspect,"
+  not the whole story. See CHANGELOG.md's 0.36.0 entry.
+- **The sweep only ever implemented the two endpoints, not the
+  midpoints the design spec asked for.** The spec's Phase 0b section
+  explicitly asked for "one or two midpoints" between the cycle-start
+  and cycle-ceiling gear tiers, to show a fuller difficulty curve
+  within a cycle rather than just its two ends. `runCycleSweep()` in
+  `scripts/simulate-balance.js` only ever grew the two endpoints. Worth
+  adding once the potion/buff-tonic modeling above is also addressed,
+  so a midpoint row is actually trustworthy.
+- **A superboss's `debutNgPlusCycle` is a floor with no ceiling - real
+  sweep data shows each new boss can go from a healthy win rate at its
+  own debut cycle to ~0% just one NG+ cycle later.** E.g.
+  `superBossTwo`'s own cycle-ceiling win rate: 74.30% at its NG+1
+  debut, 0.05% at NG+2 (see the design spec's Validation results
+  section for the full per-boss numbers). Since `isSuperBossDebuted`
+  (`js/systems/superBossGates.js`) only checks `ngPlusCycle >=
+  debutNgPlusCycle`, a player who doesn't fight a given superboss
+  during its "window" cycle may never be able to beat it once they've
+  moved past it - gear/level pacing outruns it in the other direction.
+  Not a regression (`superBossOne` already has this property at its
+  own NG+0-NG+1 boundary), but worth a real design discussion for
+  future superbosses/cycles: should there be a debut *window* (an
+  upper cycle bound, not just a lower one), a different gear-pacing
+  lever, or is an open floor actually fine because a player who out-
+  levels a superboss was never meant to fight it for challenge rather
+  than farming.

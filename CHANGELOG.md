@@ -24,7 +24,7 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
-## [0.33.0] - 2026-09-13
+## [0.37.0] - 2026-09-13
 
 ### Added
 - **The basic Attack (`a`) now has its own punch impact sound, `attackPunch`**,
@@ -107,6 +107,642 @@ world/UI sounds still uncast, Sever/`abilitySwingChop` still pending a
 replacement), and no music track has been selected yet (a loop-ready
 candidate pass across all 9 categories exists in the separate
 `emoji-rpg-audio` tooling repo, pending a listening decision).
+
+## [0.36.0] - 2026-09-13
+
+### Added
+- **NG+ ring/charm equip slots now scale with New Game Plus progress, uncapped.** Ring slots grow `2 + 2 * ngPlusCycle` (2 at NG+0, 4 at NG+1, 6 at NG+2, ...) and Charm (`accessory`) slots grow `2 + 1 * ngPlusCycle` (2, 3, 4, ...), forever - deliberately uncapped per the game's own owner ("I'm okay if it messes up balance... if it gets too wild then oh well"). `js/systems/inventory.js` gained `ringSlotCount`/`accessorySlotCount`/`physicalKeysFor(slotType, ngPlusCycle)`, replacing the old fixed `DUAL_SLOT_PHYSICAL_KEYS` pair everywhere it was read (`resolveDualEquipSlot`, `resolvePhysicalSlot`, `physicalSlotsFor` - the last of these now takes `state` to read `ngPlusCycle`). `getEquipmentBonuses` needed no change - it already iterated `state.equipment`'s own keys generically rather than a hardcoded list. `inventoryScreen.js`, `smithScreen.js`, and `statsPanel.js` now render however many slots the current cycle grants, with "Ring N"/"Charm N" labels generated programmatically instead of a 2-entry lookup table. No migration needed - an unset higher slot just reads as empty, same as `null`.
+- **Battle DPS log + in-game "DPS Over Time" chart**, so a NG+ push (or a full replay) can be checked against real numbers instead of just a feel. Every battle already logged a `battle_end` telemetry event (`js/main.js`) with duration/monster-ids/NG+cycle; it now also carries `totalDamageDealt`, a computed `dps`, and a `category` (`'regular' | 'boss' | 'superboss'`, via `MONSTERS[id].isBoss`/`.isSuperBoss`). The per-battle damage total reuses `battleScreen.js`'s existing `recordPlayerDamage()` funnel (already shared by every direct-hit path for the "New Max!" callout), plus three more sites that weren't feeding it: the elemental on-hit proc in `applyOnHitEffects`, the Retribution Charm thorns reflect, and the parry-counter reflect - all now count toward DPS, since all are damage the player's own build/skill dealt. Reachable via a new "DPS Chart" button next to "Copy Play Log" in Settings (`js/screens/dpsChartScreen.js`): a plain-canvas line chart (`js/systems/dpsChartData.js` for the pure data prep, unit-tested; the canvas paint itself isn't, same split as `mapDrawList.js`/`mapCanvasRenderer.js`) plotting DPS per fight in chronological order, colored by category, with dashed NG+ cycle-boundary markers. The weak-mob instant-resolve path's `battle_end` events (`totalDamageDealt: 0`, no real fight happened) are excluded from the chart - left in, they'd plot as false 0-DPS points that get *more* frequent as the player outclasses more content, the opposite of the intended "am I getting stronger" signal. `js/systems/telemetry.js` gained `getBufferedEvents()` (objects, not the existing `getBufferAsJsonl()` string) for the chart to read. Caveat worth knowing: the telemetry buffer caps at 2000 events across every event type (not just battles), so the chart's real-world history depends on how much else has been logged recently - not something this change addresses.
+- **Terrain painter: multiple `exit` tiles per dungeon interior are now allowed.** `saveNewDungeonBtn`'s handler (`tools/terrain-painter/painter.js`) required exactly one; now it just needs at least one, and picks the first one found (in scan order) as `startPosition`. `js/main.js`'s `exitMap` handler already didn't care which specific exit tile the player stood on - it always returns them to that dungeon's own wilderness entrance - so this was purely an editor-side restriction. `tests/superBosses.test.js`'s reachability assertion loosened to match (`>= 1` instead of `=== 1`).
+
+### Fixed
+- **Faultline's staggered sweep no longer locks out Attack, Flee, and other abilities for its whole ~1s+ duration.** `abilityActionInFlight` (`js/screens/battleScreen.js`) used to stay held for the entire per-enemy stagger loop; it's now released right after Faultline's own synchronous prelude (GCD, streak reset, swing animation) and before the stagger loop starts - every combatant-state mutation that guard actually protects is already done by that point, so nothing is left for a concurrent action to corrupt. A second Faultline press during its own stagger window is still guarded, now by a dedicated `aoeSweepInFlight` flag rather than the generic one. The `extraTargetIndices` stagger loop (Sever's extra target, the Faultline-widen buff) has the same lockout at a smaller scale and is a known, deliberately deferred follow-up - fixing it touches those abilities' own timing, out of scope here.
+- **`scripts/simulate-balance.js`'s `--cycle-sweep` mode couldn't model more than a flat 6 potions**, so every "cycle-ceiling" row reported exactly 6.0 potions burned (the cap itself, not a real stopping point) and read ~0% win at every NG+ cycle - including `superBossOne`'s own NG+2, which a real save actually won at full HP. Bumped to a `CYCLE_SWEEP_POTION_BUDGET` of 20, matching the design spec's own "up to ~20 potions is fine" allowance. Re-run evidence: `superBossOne`'s NG+0 ceiling build went from 0% to 100% win, NG+1 from 0% to 83% - real signal the flat-6 cap was hiding, not a balance change (no combat numbers touched, only how many potions the simulated character is allowed to carry).
+
+### Removed
+- **The DOM/CSS-Grid map renderer.** Kept alongside the canvas renderer (0.29.0) as A/B scaffolding (`?renderer=dom`) until the rewrite was confirmed live; it now is, so `js/screens/mapDomRenderer.js` (~500 lines), its `renderer` prop/resolution in `mapScreen.js`, and its dead CSS (`.map-grid`, every `.map-tile*` rule, several now-unused keyframes) are gone. `tests/mapScreenDom.test.js`'s pure-rendering assertions were removed (canvas equivalents already exist in `tests/mapDrawList.test.js`/`tests/mapTrail.test.js`); its renderer-agnostic behavior tests (keydown, town exits, encounter cooldown, gate crossing, etc.) were kept and re-pointed at the now-only renderer.
+
+## [0.35.4] - 2026-09-13
+
+### Added
+- **Terrain painter: wilderness "Check Map," animated.** The one item
+  explicitly left undone in 0.35.3 (see that entry's own "Not yet built"
+  note). `checkProgression()` (`tools/terrain-painter/reachability.js`) now
+  also returns `passes` - the `reached` set after each flood, in order
+  (index 0 is the initial toolless flood, each one after it is the re-flood
+  triggered by a dungeon unlocking). `checkMap()`
+  (`tools/terrain-painter/painter.js`) replays those waves on-screen: each
+  wave's *new* tiles reveal one-by-one in BFS order (the same "Set
+  iteration order IS discovery order" trick `checkDungeonMap()` uses) with
+  the same teal "exploring" tint, settling into the real free/tool-gated
+  tint once the wave finishes, then a brief pause before the next wave
+  starts. A wave that unlocks nothing new (the portal/dragon dungeons,
+  which don't gate any terrain) has an empty delta and is skipped
+  instantly. A new `checkMapSpeed` slider next to the "Check Map" button
+  controls tiles-per-frame, mirroring `dungeonCheckSpeed`. Once every wave
+  settles, the overlay swaps to the exact same final
+  toollessReached/tooledReached/frontier tinting and verdict text this
+  function already produced before the animation existed - the check
+  itself is unchanged, only how the result is revealed.
+
+### Fixed
+- **Terrain painter: "Save New Dungeon to Server" re-prompted on every
+  save, not just the first.** `SINGLE_MAPS[key].isNewDungeon` never
+  flipped to `false` after a successful `/api/create-dungeon` save, and
+  the server's `SINGLE_MAP_FILES` registry (which `/api/patch-single-map`
+  checks) was only populated once at startup, so a dungeon created this
+  session couldn't be patched yet even if the client tried. Every save
+  re-ran the whole create-dungeon flow - re-prompting for
+  `guardianMonsterId` and rewriting the whole file from scratch - even on
+  the Nth save of an already-registered dungeon. Fixed on both sides:
+  `handleCreateDungeon` (`tools/terrain-painter/server.js`) now adds the
+  new file to `SINGLE_MAP_FILES` immediately after writing it, and
+  `saveNewDungeonBtn`'s success handler (`tools/terrain-painter/
+  painter.js`) flips `isNewDungeon` to `false`, hides the "Save New
+  Dungeon to Server" control, and relabels the normal export button to
+  "Save to Server" - so every save after the first goes through the
+  existing lightweight `/api/patch-single-map` path (LEGEND/ROWS only, no
+  prompt), same as any other existing single map. Verified live: create a
+  dungeon, save it once (one prompt), edit a tile, save again (zero
+  prompts, file patched on disk).
+
+## [0.35.3] - 2026-09-13
+
+### Added
+- **Terrain painter: order-independent tool-progression checking.** The
+  wilderness "Check Map"'s `checkProgression()`
+  (`tools/terrain-painter/reachability.js`) is now a fixed-point/
+  iterative-unlock algorithm instead of a fixed axe→pick→canoe→portal→dragon
+  staged check - any order that actually works is recognized as sound, and a
+  genuine deadlock (no order works) is reported by naming every stuck
+  dungeon, not just the first broken "stage."
+- **Terrain painter: dungeon-interior "Check Map," animated.** A single
+  flood-fill from the door/entrance tile (`checkDungeonMap()` in
+  `tools/terrain-painter/painter.js`) confirms every walkable tile in a
+  loaded dungeon/mini-dungeon map is reachable - no tool-gating inside a
+  dungeon interior, so this is much simpler than the wilderness check. The
+  check animates outward from the door one BFS layer at a time (teal =
+  explored so far), with a persistent speed slider next to the button
+  controlling tiles-revealed-per-frame; unreachable tiles are then tinted
+  magenta, same visual language as the wilderness check's frontier tint.
+- **Terrain painter: unsaved-changes indicator + export prominence.** A
+  persistent "N unsaved changes" counter (`#unsavedChangesStatus`),
+  `#exportAllBtn` glows/pulses while dirty, and a "↓ Save" button
+  scroll-and-flashes the export controls into view.
+- **Terrain painter: existing superboss dungeons are now selectable in the
+  Map dropdown.** All five superboss dungeon files
+  (`js/maps/superBosses/*.js`) were missing from `SINGLE_MAPS` - only a
+  brand-new dungeon created via "New Dungeon" in that same browser session
+  ever got added there, and that's lost on reload. Without this, neither
+  the order-independent progression check nor the new dungeon-interior
+  Check Map above could actually be pointed at `superBossFive`'s known-
+  broken map at all. Registered from `SUPER_BOSSES`' own `dungeonMapId`
+  field (every existing file follows `dungeonMapId`'s name exactly - see
+  `js/maps/superBosses/superBossFive.js` etc.), *not* as `isNewDungeon` -
+  these files already exist, so saving them goes through the new direct-
+  to-disk save path below, not "Save New Dungeon to Server."
+- **Terrain painter: existing single maps (dragon/tool/mini/superboss
+  dungeons) now save straight to disk, one click, no manual paste.**
+  Raised live: repainting `superBossFive` and then hitting the export
+  button "just shows me the stuff to export" instead of actually saving -
+  right, that button only ever copied `LEGEND`/`ROWS` to the clipboard for
+  hand-pasting into the file, the one save path these dungeon types never
+  had (bulk export only covers wilderness screens; "Save New Dungeon to
+  Server" only applies to a dungeon that doesn't have a file yet). New
+  `/api/patch-single-map` server endpoint (`tools/terrain-painter/
+  server.js`) patches an existing single map's `LEGEND`/`ROWS` block in
+  place, the same way `/api/patch-wilderness` already does per screen -
+  validated against a fixed `SINGLE_MAP_FILES` table (the five superboss
+  dungeons included, derived from `SUPER_BOSSES` the same way the
+  dropdown fix above is), never a raw path from the request. The export
+  button now reads "Save to Server" and writes directly to disk instead
+  of copying to the clipboard whenever a real file + the authoring server
+  are both available; the "↓ Save" button performs the same save (not
+  just a scroll-and-flash) in that case, and both fall back to the old
+  copy-to-clipboard behavior for wilderness screens or without the server
+  running.
+
+### Fixed
+- **`superBossFive`'s dungeon is now fully reachable, guardian included.**
+  Timothy repainted the single broken connection himself, live in the
+  terrain painter, using the new dungeon-interior Check Map above to find
+  exactly where the path was cut (one wall tile turned back into floor) -
+  confirmed by both the new Check Map (0 unreachable tiles) and
+  `npm run test` (`tests/superBosses.test.js`'s `assertFullyReachable`,
+  previously the one known failure on this branch, now passing). See the
+  correction note below for how much worse this bug actually was than
+  first logged.
+
+### Not yet built (raised the same session, tracked for follow-up)
+- The wilderness "Check Map"'s own reveal animation - only the
+  dungeon-interior check above got one. The order-independent rewrite above
+  turned wilderness progression checking into a fixed-point loop (a full
+  re-flood per unlock pass), and animating that coherently is a design
+  question (how to show N successive floods against a growing passable
+  set), not just a rendering one the way the single-flood dungeon check
+  was - scoped out rather than rushed.
+
+### Correction to the 0.35.2 entry below
+Running the new dungeon-interior Check Map above directly against
+`superBossFiveMap` found the known bug there is considerably worse than
+originally logged: **558 of 650 walkable tiles are unreachable from the
+door, including the `guardian` tile itself** - not just the one stray tile
+at (45,0) next to it. `npm test`'s `assertFullyReachable` only ever reported
+that one tile because it uses `assert.ok` inside its scan loop and throws
+at the first offender in raster order, masking everything after it. As
+currently painted, this dungeon is unwinnable, not just cosmetically messy.
+Still Timothy's map content to fix, not a code bug.
+
+## [0.35.2] - 2026-09-13
+
+### Added
+- **Terrain painter: superboss placement + dungeon-authoring quality-of-life pass.**
+  Raised live while Timothy placed all four new superbosses in the world:
+  (1) Superboss map markers now labeled `SB1`-`SB5` by registry order instead of the
+  first two letters of their id (every id started `superBoss`, so every marker read
+  "SU" - indistinguishable once a second superboss existed). (2) "Check Map" now also
+  verifies every *placed* superboss marker is reachable with every tool, not just the
+  axe → pick → canoe → portal → dragon chain - this was silently unchecked before.
+  (3) "Save New Dungeon to Server" gained an optional "Hook up to superboss" dropdown
+  that sets `dungeonMapId`/`hasDungeon` in `js/data/superBosses.js` automatically -
+  previously that link had to be hand-edited after every dungeon save, a gap Timothy
+  hit firsthand authoring `superBossTwo`'s dungeon.
+
+### Fixed
+- **All five superbosses are now placed in the world** (`js/data/superBosses.js`):
+  `superBossOne` was already placed; `superBossTwo`-`Five` now have real
+  `screenId`/`x`/`y` (behind water/mountain/thicket, confirmed reachable with every
+  tool via the new Check Map coverage above) and each has its own dungeon
+  (`js/maps/superBosses/superBossTwo.js` through `superBossFive.js`, registered in
+  `js/main.js` and in `tests/superBosses.test.js`'s structural coverage).
+  **`superBossFive`'s dungeon has a known bug**: tile (45, 0), next to the guardian,
+  is walkable but unreachable from the entrance - `npm run test` catches this
+  (`tests/superBosses.test.js`'s reachability check) and will keep failing until
+  the map is repainted to connect it. Left as-is rather than hand-patched, since
+  the map's actual layout is Timothy's own authoring work.
+
+### Not yet built (raised the same session, tracked for follow-up)
+- Dungeon-interior "Check Map" (door → guardian reachability, mirroring the
+  wilderness check) - `superBossFive`'s bug above is exactly what this would have
+  caught live in the editor instead of via `npm test` after the fact.
+  - Order-independent tool-progression checking (iteratively unlock whatever's
+  currently reachable instead of assuming a fixed axe→pick→canoe→portal script).
+  - An animated visualization of the reachability check itself (with a speed
+  slider) - explicitly requested as a "this would be cool" addition, not required.
+  - Live "N unsaved changes" indicator + a more prominent/relocated export button.
+  - Support for multiple `exit` tiles per dungeon (one designated `startPosition`,
+  any of them a valid way out) - see `docs/superpowers/BACKLOG.md`'s 2026-09-13
+  entry for why this is purely an editor-side restriction today, not a game-engine
+  one.
+
+## [0.35.1] - 2026-09-13
+
+### Fixed
+- **Fix wave from the final whole-branch review of `feature/superboss-expansion`.**
+  Ten findings addressed: (1) `js/data/playerChangelog.js`'s 0.35.0 entry claimed
+  four new superbosses were reachable in New Game+, which is false until they're
+  placed (`screenId`/`x`/`y` are still `null`) - reworded to match this file's own
+  "groundwork shipped, nothing to notice yet" convention (see 0.34.7/0.34.8).
+  (2) `tests/superBosses.test.js` now asserts a `SUPER_BOSSES` entry's
+  `screenId`/`x`/`y` are consistently all-null or all-non-null, never a mix.
+  (3) The design spec's "Validation results (implementation)" section now records
+  that the `superBossOne` control's *cycle-ceiling* row also reads ~0% win rate at
+  every NG+ cycle tested, not just its cycle-start row - contradicting the real
+  NG+2 100%-HP win this whole investigation started from, and flagging this pass's
+  three down-retunes (`superBossThree`/`Four`/`Five`) as low-confidence in the cut
+  direction. (4) `js/data/monsters.js`'s `superBossFive` comment clarified: it's
+  the hardest of this pass's four only at its own debut cycle - at any fixed NG+
+  cycle it's actually the weakest of all five superbosses, a consequence of its two
+  attack cuts. (5) `js/systems/inventory.js`'s stale comment describing the
+  now-fixed flat-upgrade-cap bug updated to reflect current reality. (6) Removed
+  the now-unused `MAX_UPGRADE_LEVEL` import from `scripts/simulate-balance.js`.
+  (7) `CHANGELOG.md`'s 0.34.7 entry's special-attack list was missing `stun`;
+  added. (8) `js/systems/superBossGates.js`'s `isSuperBossDebuted` now uses `?? 0`
+  instead of `|| 0` to state its actual intent (no behavior change, since the field
+  is never a negative number when present). (9) `scripts/simulate-balance.js`'s
+  `CYCLE_SWEEP_LEVELS` doc comment softened to admit it's a rough, rounded-down
+  extrapolation rather than a precise per-cycle fit. (10) Recorded three follow-up
+  threads (simulator potion/buff-tonic modeling gap, missing cycle-sweep
+  midpoints, `debutNgPlusCycle`'s open-floor gating) in
+  `docs/superpowers/BACKLOG.md` so they aren't lost.
+- **`js/data/playerChangelog.js`'s guard comment above the 0.35.0 entry was left
+  stale by finding (1) above.** It still warned "this entry ... is only accurate
+  once that placement lands; don't let it ship ... ahead of that", contradicting
+  the entry it documents, which finding (1) had already reworded to the accurate
+  "groundwork shipped, nothing to notice yet" framing. Reworded to stop telling
+  the next session to hold the branch back for a reason that no longer applies.
+
+## [0.35.0] - 2026-09-13
+
+### Added
+- **Phase 2 of the superboss expansion ships: four new superbosses, gated to NG+ cycles 1–4** (`superBossTwo` through `superBossFive`), completing `docs/superpowers/plans/2026-09-13-superboss-expansion.md` end to end. Phase 0 (0.34.7) fixed two bugs in `scripts/simulate-balance.js`'s balance simulator (a cycle-blind `maxedUpgrades` that ignored the real per-cycle upgrade cap, and special attacks rolling the same parry rate as routine hits instead of a higher, reactable one) and added its `--cycle-sweep` mode; Phase 1 (0.34.8) added the `isSuperBossDebuted`/`getSuperBossNotYetMessage` NG+-cycle gating plumbing in `js/systems/superBossGates.js` and wired it into `main.js`'s superboss tile actions. Both were prerequisites with no player-visible effect on their own, since no superboss yet set a `debutNgPlusCycle`. This release is where that plumbing starts doing something: the four registry entries below are the first to actually use it. See `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md` for the full design spec, including its "Validation results (implementation)" section for the `--cycle-sweep` tuning numbers behind each boss below.
+- **Four new superboss monster entries added (`superBossTwo` through `superBossFive`).**
+  Each debuts at its own NG+ cycle (cycles 1–4 respectively) and guarantees a unique `apex`-tier item drop.
+  Base stats are first-pass, deliberately tuned to be shorter fights with harder-hitting attacks than
+  `superBossOne`'s own cycle-scaled equivalents. Validate and retune with `scripts/simulate-balance.js --cycle-sweep`
+  before final placement.
+- **`guardiansLastStand` unique item added to the superboss loot pool.**
+  A new guaranteed drop for the cycle-4 superboss (superBossFive), combining `thornsPercent` (30) and `debuffDurationPercent` (25) — both existing stat fields already wired through equipment bonuses. Includes a placeholder name to be renamed before final release.
+- **Four new `SUPER_BOSSES` registry entries added (`superBossTwo` through `superBossFive`).**
+  Each starts inert (`screenId: null`, `x: null`, `y: null`) following the same pattern as `superBossOne` before placement via the terrain painter. All default to `hasDungeon: false` (wilderness encounters, not dungeon-gated); Timothy can convert any to dungeon entrances later using the existing terrain-painter tooling with zero new code. Each entry carries a `debutNgPlusCycle` field (1–4 respectively) gating when it can be encountered, consistent with Task 5's `isSuperBossDebuted` predicate wiring.
+
+### Fixed
+- **`superBossThree` and `superBossFour` retuned after `--cycle-sweep` validation showed their first-pass stats badly missing the design goal's target bands at their own debut cycle.**
+  `superBossThree` (debuts NG+2) was a losing grind at cycle-ceiling gear (0% win rate despite heavy potion use) — `hp` 800→640 and `attack` 70→60 brought it to a real win with heavy resource spend. `superBossFour` (debuts NG+3) was a near-instant burst-death at cycle-ceiling gear (0.2% win, almost no potions used) — `attack` 77→58 fixed the burst-death shape, then `hp` 563→480 (a second pass) raised its win rate to a narrow but real win. `superBossFive` (debuts NG+4) also got a two-pass `attack` retune (82→59→48) but is still essentially unwinnable at its own debut cycle's ceiling gear after both passes — left as-is for real playtesting rather than a third guess, per this plan's two-pass cap. `superBossTwo` needed no change. See `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`'s "Validation results (implementation)" section for full sweep numbers.
+
+## [0.34.8] - 2026-09-13
+
+### Added
+- **`js/systems/superBossGates.js` gates superboss encounters on NG+ cycle progress.**
+  Exports `isSuperBossDebuted(entry, ngPlusCycle)` (pure predicate: returns true iff the
+  entry has no `debutNgPlusCycle` field or the player has reached/exceeded that cycle) and
+  `getSuperBossNotYetMessage()` (the message shown when a superboss is locked). Mirrors the
+  shape of `js/systems/toolGates.js`'s `hasRequiredTool`/`getLockedGateMessage` seam,
+  providing the decision logic that Task 5's wiring to `main.js` will call into. All entries
+  without a `debutNgPlusCycle` field default to being immediately available (cycle >= 0),
+  e.g. `superBossOne` does not have the field and debuts at cycle 0.
+- **`main.js`'s `superBossBattle`/`enterSuperBossDungeon` tile actions now actually gate on
+  `isSuperBossDebuted`.** Previously either branch would happily start the fight or open the
+  dungeon for any superboss found at the player's position, with no NG+ cycle check at all -
+  the predicate above existed but nothing called it yet. Both branches now check
+  `isSuperBossDebuted(superBoss, state.ngPlusCycle)` before doing anything and show
+  `getSuperBossNotYetMessage()`'s flavor banner instead when it's not met. No visible effect
+  yet with real data, since `superBossOne` has no `debutNgPlusCycle` set (Phase 2 adds that
+  to the new bosses) - verified with a temporary scratch edit per the plan's Task 5 Step 5,
+  reverted before this commit.
+
+## [0.34.7] - 2026-09-13
+
+### Added
+- **`scripts/simulate-balance.js` gains a `--cycle-sweep <bossId>` mode.**
+  Instead of the fixed level-12 "maxed" build the existing report used,
+  this runs a small level/gear matrix - "cycle-start" (full iron/Superior
+  shop gear, upgrade level 0, a level a few above the previous cycle's
+  expected finish) through "cycle-ceiling" (Mythic everywhere, upgraded
+  to that cycle's real `getMaxUpgradeLevel(cycle)`) - against a given
+  superboss at each NG+ cycle from 0 to 4. This is the tool the rest of
+  `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`'s
+  plan will use to validate the four new superbosses' stats before they
+  ship, rather than eyeballing a single build/cycle combination. Adds a
+  new `runCycleSweep()` function and a `cycleSweepBossId` option to
+  `parseArgs()`; `main()` dispatches to it and returns early when the
+  flag is present, skipping the full multi-monster report.
+
+### Fixed
+- **`scripts/simulate-balance.js` now models telegraphed special attacks with a
+  separate, higher parry rate.** Superboss special attacks (stun/slow/cooldownOverload)
+  are telegraphed with a distinct flavor line/icon so a real player can react to
+  them, unlike routine hits. The simulator was rolling the exact same `parryLandRate`
+  (default 0.3) for both, making every superboss look far harder in this file than
+  in real play. Testing confirmed the effect size: disabling superBossOne's specials
+  outright raised its NG+1 win rate from 40% to 87% with nothing else changed. Now
+  `simulateBattle()` accepts a 4th parameter `specialParryLandRate` (default 0.55) and
+  uses it when the rolled attack is a special. The CLI accepts `--special-parry-rate`
+  to override the default, same as `--parry-rate`. Motivation: see "Problem" section
+  of `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`.
+- **`scripts/simulate-balance.js`'s `maxedUpgrades()` function now uses the
+  real per-cycle upgrade cap instead of a flat `MAX_UPGRADE_LEVEL`.** The
+  function previously applied upgrade level 3 to every item slot regardless
+  of which NG+ cycle the test build claimed to represent, silently under-
+  gearing the two "maxed Mythic L12 (NG+2, ...)" builds that are meant to
+  test a player at the actual NG+2 gear ceiling. Now `maxedUpgrades()` takes
+  an optional `cycle` parameter (defaulting to 0 for backward compatibility)
+  and calls `getMaxUpgradeLevel(cycle)` to get the correct ceiling - NG+2
+  builds now show upgrade level 7 on every slot instead of 3, correctly
+  exposing the real NG+2 difficulty curve that was masked by the under-
+  gearing. Motivation: see "Problem" section of
+  `docs/superpowers/specs/2026-09-13-superboss-expansion-design.md`.
+
+## [0.34.6] - 2026-09-13
+
+### Fixed
+- **An imported save's default character name no longer bakes in a level
+  that immediately goes stale.** `js/main.js`'s `handleCloudSaveImport`
+  built the default name shown in the `window.prompt` as `Imported
+  ${emoji} Lv${level}`, and that string becomes the permanent
+  `slot.name` in the save-slot registry (`js/systems/saveSlots.js`'s
+  `importSlot`) whenever a player accepts the default as-is.
+  `saveSlots.js`'s `touchSlot`, called on every subsequent save, updates
+  `entry.level` (and `entry.ngPlusCycle`) but never touches `entry.name`
+  - so the live level shown on the Character Select screen's `Level
+  ${slot.level}` meta line (`js/screens/startScreen.js`'s
+  `renderSlotRow`) kept advancing while the level baked into the name
+  above it froze at import time. Reported with a screenshot showing a
+  character named "Imported (emoji) Lv12" with "Level 19" directly beneath it
+  - 7 level-ups after import, never reflected in the name. Fix: drop the
+  level from the default name entirely (`Imported ${emoji}`), since it's
+  redundant with the live meta line right below and this way it can
+  never go stale. A custom name typed at the prompt is unaffected either
+  way.
+
+## [0.34.5] - 2026-09-12
+
+### Fixed
+- **The player's own marker no longer inherits guardian/boss scale when
+  standing on a guardian or boss tile.** `js/screens/mapDomRenderer.js`
+  (line 269) and `js/systems/mapDrawList.js` (line 213) each set the
+  marker to `GUARDIAN_PX` (2.2x tile size, "big and scary" per the
+  0.26.12 comment) whenever `tile === TILES.guardian || tile ===
+  TILES.boss`, with no guard excluding the player's own marker - unlike
+  the neighboring `PORTAL_ACTION_TILES` check a few lines below in both
+  files, which already carries `&& !isPlayer` for the same reason. Both
+  conditions now add `&& !isPlayer`, so walking onto (or fighting on) a
+  guardian/boss tile keeps the hero at normal `HERO_AND_LOOT_PX` size
+  instead of ballooning to guardian scale; the guardian/boss glyph
+  itself is unaffected when the player isn't standing on it. Diagnosed
+  pre-split against `js/screens/mapScreen.js` (see the now-fixed
+  `docs/superpowers/BACKLOG.md` entry raised 2026-09-09) - this applies
+  the same one-line-per-file fix to both files that split off from it.
+
+## [0.34.4] - 2026-09-12
+
+### Fixed
+- **`js/screens/battleScreen.js`'s Lacerate retrigger window now reads
+  `Date.now()` instead of `performance.now()`**, matching every other
+  elapsed-time read in the same file (windup start/complete, parry
+  cooldown, buff durations) - no comment anywhere explained why this one
+  mechanism used a different clock, and a ~1.2s UI timing window has no
+  real use for `performance.now()`'s extra precision or clock-adjustment
+  immunity. This was the one thing blocking the last 6 subtests in
+  `tests/battleScreenDom.test.js` from converting to `t.mock.timers`
+  (confirmed no newer Node version adds `performance` support to
+  `mock.timers` either - checked the current docs) - all 89 subtests in
+  that file now run on the fake clock. That file: ~9s -> ~2s.
+
+## [0.34.3] - 2026-09-12
+
+### Fixed
+- **Two more real-wall-clock waits converted to `t.mock.timers`**, the
+  small remainder found while auditing the suite after 0.34.1/0.34.2:
+  `tests/celebrationEffect.test.js`'s tool-celebration-duration test
+  (1500ms + 1400ms real wait) and `tests/mapScreenDom.test.js`'s two
+  portal-pull-delay tests (500ms each). Both were simple, single
+  `setTimeout` calls in application code (no `Date.now()` reads, no
+  chaining), so this was a direct swap. Doesn't change the full suite's
+  wall-clock time - `node --test` runs files concurrently, and these
+  waits were already shorter than `battleScreenDom.test.js`'s own
+  runtime (the actual bottleneck, ~7.6s of it the six Lacerate-
+  retrigger-window tests still deliberately on real timers - see
+  0.34.2's own entry) - but removes their own residual CI-load-flake
+  risk regardless.
+
+## [0.34.2] - 2026-09-12
+
+### Fixed
+- **`tests/battleScreenDom.test.js` converted from real wall-clock waits to
+  `node:test`'s `t.mock.timers`**, the same fix 0.34.1 already applied to
+  `tests/battleSpecialAttacks.test.js` (`docs/superpowers/BACKLOG.md`) - this
+  file was 42+ of the suite's ~43 real seconds (89 subtests, most polling
+  real time for `js/screens/battleScreen.js`'s real `setInterval(tick,
+  300)`), the same CI-parallel-load starvation risk. Runtime: ~42s -> ~9s.
+  Six Lacerate-retrigger-window subtests are deliberately left on real
+  timers - that mechanism is timed off `performance.now()`, which
+  `mock.timers` doesn't support mocking on this Node version (confirmed by
+  direct experiment). `battleScreen.js` itself is unchanged. Also added
+  `.github/workflows/test.yml`, a tests-only PR workflow with no deploy
+  step, so the suite can be re-run against GitHub's own runner (where this
+  class of flake actually shows up, not a local machine) as many times as
+  needed to build confidence before merging, without repeatedly deploying
+  to production the way re-running `deploy.yml` would.
+
+## [0.34.1] - 2026-09-12
+
+### Fixed
+- **`tests/battleSpecialAttacks.test.js` flaked under CI's parallel test
+  load, blocking this deploy** (`docs/superpowers/BACKLOG.md`, raised
+  2026-09-10, flaked again today past a prior fix's 20000ms deadline).
+  The test's own `an unparried cooldownOverload special disables an
+  off-cooldown ability button` polled real wall-clock time waiting for
+  `js/screens/battleScreen.js`'s real `setInterval(tick, 300)` to fire -
+  under CI's CPU contention from ~74 test files running concurrently,
+  that timer itself gets scheduled late, and raising the poll's deadline
+  (twice now) only bought margin, not a fix. Rewrote the file onto
+  `node:test`'s built-in `t.mock.timers`, so `tick()` only ever fires
+  when the test explicitly advances a fake clock - no real waiting, no
+  CI-load dependency, and the file now runs in well under 1 second
+  instead of 20-40+ real seconds. `battleScreen.js` itself is
+  unchanged. Also fixed a genuine, unrelated hazard the deterministic
+  ticks exposed: an occasional monster critical hit for exactly the
+  player's starting 20 HP could end the battle mid-test, since these
+  tests now reliably drive the monster through multiple attack turns
+  instead of racing a poll that used to often return early - the
+  player's HP in this file's fixtures is now effectively unkillable,
+  since survival odds were never what these tests are checking.
+
+## [0.34.0] - 2026-09-12
+
+### Added
+- **Worn paths now reduce the wild-encounter chance on that tile, up to
+  50% less at full wear** - raised and designed live the same day (see
+  `docs/superpowers/specs/2026-09-12-worn-path-encounter-discount-
+  design.md`). The discount multiplier tracks the existing visual
+  trail-wear curve exactly (`trailWearFraction`/`TRAIL_WEAR_CAP = 10` in
+  `js/systems/trail.js`, new `wornPathEncounterMultiplier`) - Timothy's
+  own call, so a heavily-trafficked tile can reach the full 50% off
+  within its first 10 crossings. `js/screens/mapScreen.js`'s encounter
+  roll now folds this multiplier into the existing
+  `Math.random() < encounterChance` comparison, reading the tile's visit
+  count from *before* the current step (a never-before-walked tile gets
+  zero discount on the step that first walks it). Deliberately no
+  per-screen aggregate cap and no NG+ tempering - both explicit calls,
+  not gaps; trail/visit data already carries across NG+ resets
+  (`js/systems/ngPlus.js`), so this is now a real, deliberate gameplay
+  effect there too, not merely cosmetic as the old comment claimed.
+  On by default with a new Settings toggle
+  (`state.settings.wornPathDiscountEnabled`), plus a one-time in-game
+  hint banner the first time the discount actually applies to a step,
+  using Timothy's own wording. A ring/charm idea that would suppress
+  encounters entirely was designed alongside this (composes
+  multiplicatively, doesn't replace the case for the per-tile discount)
+  but is not built - see `docs/superpowers/BACKLOG.md`.
+
+## [0.33.3] - 2026-09-12
+
+### Fixed
+- **The dragon boss entrance rendered on a black square at plain tile size**,
+  raised 2026-09-12 with a screenshot. `TILES.boss` (`js/tiles.js`) was the
+  one landmark tile missing from both `FULL_SQUARE_MARKERS` and
+  `GRASS_CONTEXT_MARKERS` (`js/systems/mapRenderModel.js`) - every tool
+  guardian and the superboss entrance/marker were already in both sets, so
+  it alone fell through to `.map-tile`'s bare default background
+  (`GROUND_COLOR_DEFAULT`, `#333333`) and the plain `FULL_SQUARE_PX` size
+  instead of grass and the "big and scary" `GUARDIAN_PX` (2.2x) treatment
+  guardians get. Timothy: "this dragon should not have a background and be
+  4x the size like the tool bosses." Added to both sets, plus the
+  `GUARDIAN_PX`-sizing check and the always-on-top z-index boost (needed
+  since the oversized sprite now bleeds into the row below, same as a
+  guardian) - all four spots, canvas and DOM renderers alike. New coverage
+  in `tests/mapDrawList.test.js` and `tests/mapScreenDom.test.js` against
+  `js/maps/dungeonMap.js`'s real boss tile.
+
+## [0.33.2] - 2026-09-12
+
+### Fixed
+- **Map stayed blurry after closing a dialog (battle, inventory, settings -
+  anything mounted through `screenManager.js`'s `mountOverlay`), raised
+  2026-09-12.** Timothy: "the backgrouns stayed blurry after a battle," then
+  independently guessed the real cause while I was still chasing it live:
+  "wonder if it's because I was playing with browser built-in zoom." He was
+  right. `js/screens/mapCanvasRenderer.js` only ever re-checked
+  `devicePixelRatio` in `renderStep()` (needs a real step) - `mapScreen.js`'s
+  `pause()`/`resume()`, which fire around *every* dialog, only ever
+  toggled keyboard listeners and never touched the renderer. A zoom change
+  made while any dialog sat on top left the static-layer cache (and the
+  canvas's own backing store) rasterised at the old ratio until the
+  player's next literal footstep - which for a screen you'd just resumed
+  into could be a while. The devicePixelRatio check is now its own function
+  (`syncDprIfChanged`), called from both `renderStep()` and a new
+  `refreshViewport()` that `resume()` calls unconditionally. Couldn't get
+  a visual repro in an automated browser session - genuine browser zoom
+  isn't reachable from page JS, and the closest analogs (overriding
+  `window.devicePixelRatio`, the non-standard CSS `zoom` property) either
+  don't affect real rendering or don't move the property at all - but the
+  gap itself was confirmed directly by reading the code, independent of
+  reproducing it.
+- **Minor wording fix**: the 0.33.1 player-changelog entry called the
+  portal emoji (🌌) "swirling" - it's a starry sky, not a swirl (🌀 is
+  already Momentum Elixir's icon). Corrected the text only, no version
+  bump of its own.
+
+## [0.33.1] - 2026-09-12
+
+### Changed
+- **Named the four superboss-drop items** that shipped as placeholders in
+  the 0.28.0-era superboss pass (`docs/superpowers/specs/2026-09-05-
+  superboss-pass-design.md` explicitly left this to Timothy). `Ferocity
+  Fang` is now `Tooth Flooth` - his 4-year-old's name for it, kept because
+  it fits: the weapon has no attack stat at all (pure `lifestealPercent`/
+  `critChancePercent`), so even at apex tier + max upgrade the biggest
+  number on it is still small. `Parry Master Ring`, `Unshaken Charm`, and
+  `Stormring of Haste` already read as real names, so they just lost the
+  `[PLACEHOLDER NAME]` tag. `superBossOne`'s own name is still a
+  placeholder - not touched this pass.
+- **Removed the portal tile's drop-shadow effect** (`.map-tile-portal`
+  in `css/styles.css`, the `portalShadow` draw-list op in
+  `js/systems/mapDrawList.js`/`js/screens/mapCanvasRenderer.js`). It was a
+  deliberate design (iterated live with Timothy back when it shipped, see
+  the CSS comment above `.map-tile-portal-crop`), but read as a plain
+  black square in practice rather than a soft bleed - raised 2026-09-12:
+  "the portal background being a black square ... just use the emoji, no
+  background under it." The 🌌 emoji's own oversized-and-cropped rendering
+  (unrelated, hides its baked-in pale border) is unchanged.
+- **Removed the border around the battle screen's pause button**
+  (`.battle-pause-btn` in `css/styles.css`), raised 2026-09-12 - just the
+  emoji on its dark background now.
+
+## [0.33.0] - 2026-09-10
+
+### Changed
+- **Static-layer cache for the map renderer.**
+  Timothy reported frame drops walking on heavily-walked ground at a
+  large window, recovering on untrodden ground. Measured first: at a
+  maximised window over fully-walked ground the map cost 7.70ms of JS
+  and 46,668 canvas ops per frame; the worn trail was ~92% of every draw
+  call, all of it rebuilt and repainted every frame for content that
+  only changes when the player steps on a tile. Ground, trail and static
+  sprites now paint once into an offscreen canvas blitted with a single
+  `drawImage`; the live layer is the hero, the effects, and the cells
+  whose own content animates.
+  - **The cache is patched, not rebuilt.** Rebuilding it once per step
+    measured well on a per-frame average and was horrible to play:
+    it turned evenly-spread work into one enormous paint every 110ms,
+    a ~9Hz spike. Timothy, on that build: "it's really really choppy in
+    the outside world ... in town is smooth but outside world with all
+    those paths is pretty bad." A step changes exactly two tiles, so
+    `patchStaticCache` repaints only those. The correctness trick is a
+    clip: redraw a region LARGER than the dirty area (so every
+    neighbour that paints into it is present, in row-major order) while
+    clipping to the dirty area itself (so nothing outside is touched).
+    Margins come from the draw list's own numbers, not a guess - the
+    tallest obstacle reaches 0.275 of a tile up, a signpost label 0.32,
+    and guardians are zBoosted so they never sit in the cache at all.
+  - **Measured, maximised window over fully-walked ground: 7.70ms ->
+    0.68ms of JS and 46,668 -> 1,552 canvas ops per frame** (11x and 30x).
+    The headline result is that window size stops mattering: maximised
+    now costs the same as a normal window (0.68ms vs 0.67ms), where
+    before it cost 4x more. Anything that does not name its changed
+    tiles still falls back to a full repaint, so a missed patch can
+    never leave stale pixels on screen.
+  - **The cache scrolls rather than rebuilding when the camera leaves
+    it.** Walking off its edge used to cost a full repaint; the average
+    absorbed that but it was plainly felt - "it does do the 12 step
+    hitch though and it's very noticable". `scrollStaticCache` now
+    copies the still-valid pixels to their new offset (double-buffered,
+    the two canvases swapping roles) and repaints only the one or two
+    thin strips that just came into range, through the same clipped path
+    an ordinary patch uses. A scroll now costs about what a step costs.
+  - **`?staticCache=off`** paints every cell live again, exactly as the
+    renderer did before the cache. Kept deliberately: the cache's whole
+    risk is drawing something subtly *differently*, and a switch that
+    toggles it on one running page is the only honest way to settle
+    "is this artifact the cache, or was it always like that". The flag
+    resolves onto the render context (props beat the URL, matching how
+    `renderer` already works) rather than being read off `location` -
+    the first version read the global, which left the branch impossible
+    to test, and it shipped referencing two variables in their temporal
+    dead zone: it threw every frame and painted the map solid black.
+    `tests/mapStaticLayer.test.js` now drives both paths through the
+    real frame loop.
+
+### Fixed
+- **`?debug=stress` generated a world the game cannot produce**, which
+  briefly looked like a renderer bug. Each tile picked its crossed edges
+  from a hash independently, so a tile could draw a trail stroke toward
+  a neighbour that drew nothing back and the stroke stopped dead at the
+  tile boundary - reported, reasonably, as "path having square edge when
+  dark/thick meets either thin/light or non-existing path". Real play
+  cannot do this: a step records both halves of the crossing it makes
+  (`markDirection` on the tile left, `markVisited` with the opposite
+  direction on the tile entered). Edges are now decided per edge rather
+  than per tile, so both sides always agree, and
+  `tests/debugCharacters.test.js` asserts it across all 25 screens.
+
+### Fixed
+- **Obstacle canopies and signpost labels were being erased near the
+  player** — a bug in the first cut of the cache above, found by
+  Timothy on the live build, not by the suite. That version also kept a
+  3x3 block around the player out of the cached layer and repainted it
+  every frame; repainting a cell repaints its ground, and that ground
+  erased anything overhanging *into* the block from outside it. Two
+  symptoms, one cause: "when I'm above a tree then a tall tree below
+  that one gets cut off" (obstacles are bottom-anchored and bleed
+  upward), and "the shop sign goes away when I'm in its 3x3 square",
+  with the quest board's plank vanishing from exactly three tiles north
+  of it (a sign label draws *entirely* in the row above its own tile).
+  - Enlarging the block would only have moved the seam outward: a
+    sub-rectangle of an interleaved-paint-order scene cannot be redrawn
+    over a cached whole without losing the overhang from outside it.
+    The player's cell never needed to be live at all — the hero is a
+    `followsHero` op, which `paint()` already holds back and draws after
+    every tile. The cache now keeps every ordinary cell.
+  - `tests/mapStaticLayer.test.js` asserts the invariant that was
+    missing: an ordinary cell may never appear in the live layer.
+    Verified to fail with the bug reintroduced.
+
+### Added
+- **`?debug=stress` test character**, at Timothy's request while
+  checking the above: level 20, fully equipped and strong enough to
+  ignore anything in the way, every quest at a turn-in-ready count, a
+  placed portal, and the whole 5x5 wilderness cluster covered in worn
+  path at all ten wear levels with a mix of dead ends, corners and
+  four-way junctions. Banded rather than uniform on purpose — stroke
+  width scales with visit count and adjacent tiles average their widths,
+  so a uniform fill would exercise exactly one width and none of the
+  blending. Really a rendering stress fixture that happens to be a
+  character.
+
+## [0.32.5] - 2026-09-10
+
+### Changed
+- **The project's name was "Emoji RPG" everywhere, locking in an art style that might not
+  stay emoji-only forever.** Renamed to "RPG" in the GitHub repo (`emoji-rpg` → `rpg`),
+  `package.json`, `README.md`, `CLAUDE.md`, and the in-game title (`index.html`,
+  `js/screens/startScreen.js`). Left unchanged on purpose: the live domain (already
+  `rpg.burghertime.com`), the Cloudflare Pages deploy target
+  (`--project-name=emoji-rpg` in `.github/workflows/deploy.yml` — a separate internal
+  identifier; renaming it risks having to redo the custom domain binding for no benefit),
+  and the `emoji-rpg-*` localStorage keys (save/slots/telemetry — renaming those would
+  silently orphan existing players' save data under the old key).
 
 ## [0.32.4] - 2026-09-10
 
@@ -752,7 +1388,6 @@ candidate pass across all 9 categories exists in the separate
   through the thicket", miningPick: "clear the mountain", boat: "paddle
   across the water") so the hint and the after-the-fact success message
   agree.
-
 ## [0.26.13] - 2026-09-09
 
 ### Changed

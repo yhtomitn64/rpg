@@ -160,6 +160,36 @@ test('inventoryScreen DOM', async (t) => {
     assert.equal(state.equipment.accessory2, 'luckyCharm');
   });
 
+  await t.test('at a higher NG+ cycle, the Equipment list grows to show every NG+-unlocked ring/charm slot', async () => {
+    const state = buildState();
+    state.ngPlusCycle = 1; // ringSlotCount(1) = 4, accessorySlotCount(1) = 3
+    const root = await mountInventory(state);
+    const text = root.textContent;
+    assert.ok(text.includes('Ring 1: (empty)'));
+    assert.ok(text.includes('Ring 2: (empty)'));
+    assert.ok(text.includes('Ring 3: (empty)'));
+    assert.ok(text.includes('Ring 4: (empty)'));
+    assert.ok(text.includes('Charm 1: (empty)'));
+    assert.ok(text.includes('Charm 2: (empty)'));
+    assert.ok(text.includes('Charm 3: (empty)'));
+    assert.ok(!text.includes('Charm 4:'));
+    assert.ok(!text.includes('Ring 5:'));
+  });
+
+  await t.test('at a higher NG+ cycle, equipping a ring targets a newly-unlocked slot (ring3) once ring1/ring2 are full', async () => {
+    const state = buildState();
+    state.ngPlusCycle = 1;
+    state.equipment.ring1 = 'emberRing';
+    state.equipment.ring2 = 'windfuryRing';
+    state.inventory.push({ itemId: 'powerRing', quantity: 1 });
+    const root = await mountInventory(state);
+    const equipBtn = root.querySelector('button[data-equip="powerRing"]');
+    assert.ok(equipBtn);
+    assert.equal(equipBtn.dataset.slot, 'ring3');
+    click(equipBtn);
+    assert.equal(state.equipment.ring3, 'powerRing');
+  });
+
   await t.test('Potions tab rows show 4 loadout toggle buttons, and only the heal potion shows a Use button', async () => {
     const root = await mountInventory(buildState());
     click(root.querySelector('[data-tab="consumable"]'));

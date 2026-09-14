@@ -176,6 +176,7 @@ function render() {
       <div class="settings-row settings-play-log">
         <span>Play Log</span>
         <button id="btn-copy-play-log">Copy Play Log</button>
+        <button id="btn-open-dps-chart">DPS Chart</button>
         <span id="play-log-status" hidden></span>
       </div>
       <textarea id="play-log-fallback" readonly hidden></textarea>
@@ -189,6 +190,17 @@ function render() {
           type="checkbox"
           id="settings-show-xp-in-hud"
           ${state.settings.showXpInHud ? 'checked' : ''}
+        />
+      </div>
+      <div class="settings-row settings-display-toggle">
+        <label for="settings-worn-path-discount">
+          Worn-path safety — tiles you've walked many times get a lower
+          wild-encounter chance (up to 50% less)
+        </label>
+        <input
+          type="checkbox"
+          id="settings-worn-path-discount"
+          ${state.settings.wornPathDiscountEnabled !== false ? 'checked' : ''}
         />
       </div>
       <h3>🚧 Feature Flags</h3>
@@ -309,9 +321,14 @@ function render() {
     callbacks.onChange();
   };
   document.getElementById('btn-copy-play-log').onclick = () => copyPlayLog();
+  document.getElementById('btn-open-dps-chart').onclick = () => callbacks.onOpenDpsChart();
   document.getElementById('settings-show-xp-in-hud').onchange = (e) => {
     state.settings = { ...state.settings, showXpInHud: e.target.checked };
     callbacks.onChange(); // main.js's onChange re-renders the HUD, so this shows/hides behind the open overlay
+  };
+  document.getElementById('settings-worn-path-discount').onchange = (e) => {
+    state.settings = { ...state.settings, wornPathDiscountEnabled: e.target.checked };
+    callbacks.onChange();
   };
   document.getElementById('settings-flag-audio-beta').onchange = (e) => {
     state.settings = {

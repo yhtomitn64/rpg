@@ -1,5 +1,6 @@
 import { TOOL_UNLOCK_KINDS, floodFillReachable, checkProgression } from './reachability.js';
 import { MONSTERS } from '../../js/data/monsters.js';
+import { TILES } from '../../js/tiles.js';
 
 const SCREEN_W = 30;
 const SCREEN_H = 22;
@@ -158,7 +159,20 @@ let toolDungeonMarkers = {}; // toolId -> { screenId, x, y } (wilderness only)
 let placingToolDungeon = null; // toolId currently being placed, or null
 let superBossMarkers = {}; // superBossId -> { screenId, x, y, hasDungeon } (wilderness only)
 let placingSuperBoss = null; // superBossId currently being placed, or null
-let checkOverlay = null; // { toollessReached, tooledReached, frontier: Set<string> } | null (wilderness only)
+// { phase: 'animating', settledFree, settledToolGated: Set<string>, exploring: Set<string> }
+// while the staged multi-wave reveal below is still running, or
+// { phase: 'done', toollessReached, tooledReached, frontier: Set<string> }
+// once every wave has settled and the real verdict is shown - null when
+// nothing's been checked yet (wilderness only).
+let checkOverlay = null;
+let wildernessCheckAnimId = 0; // bumped to invalidate any in-flight reveal animation (stale click, map switch, or edit)
+// { phase: 'animating', revealed: Set<string> } while the reveal animation
+// below is still running, or { phase: 'done', unreached: Set<string> } once
+// it finishes and the real verdict is shown - null when nothing's been
+// checked yet (single-map view only).
+let dungeonCheckOverlay = null;
+let dungeonCheckAnimId = 0; // bumped to invalidate any in-flight reveal animation (stale click, map switch, or edit)
+let unsavedChangeCount = 0; // edits made since the last successful export/save (or since load, if restored from autosave)
 let undoStacks = {}; // mapKey -> array of { grid, dungeonMarker, toolDungeonMarkers, superBossMarkers } snapshots, oldest first
 const UNDO_LIMIT = 30;
 
@@ -204,7 +218,7 @@ function undo() {
   } else {
     singleGrid = snapshot.grid;
   }
-  checkOverlay = null; // stale as soon as terrain is restored
+  checkOverlay = null; wildernessCheckAnimId++; // stale as soon as terrain is restored
   return true;
 }
 
@@ -293,15 +307,32 @@ function renderWilderness(ctx) {
     }
   }
 
-  if (checkOverlay) {
+  if (checkOverlay && checkOverlay.phase === 'animating') {
+    // Tool-gated tiles settled by an earlier wave stay yellow while a later
+    // wave is still exploring; the wave currently in flight gets the same
+    // teal "exploring" tint the dungeon-interior check uses. Tiles settled
+    // by the very first (toolless) wave get no tint at all, same as the
+    // final done-state below.
+    for (const key of checkOverlay.settledToolGated) {
+      const [x, y] = key.split(',').map(Number);
+      ctx.fillStyle = 'rgba(224,192,57,0.35)';
+      ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    }
+    for (const key of checkOverlay.exploring) {
+      const [x, y] = key.split(',').map(Number);
+      ctx.fillStyle = 'rgba(46,196,182,0.45)';
+      ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    }
+  } else if (checkOverlay && checkOverlay.phase === 'done') {
     for (let y = 0; y < WORLD_H; y++) {
       for (let x = 0; x < WORLD_W; x++) {
         const key = `${x},${y}`;
         if (checkOverlay.frontier.has(key)) {
-          // The blocking boundary of the first broken stage in the progression
-          // (town -> axe -> pick -> canoe -> portal -> dragon) - takes priority over the
-          // general tint below since this is specifically "the player gets
-          // stuck right here," not just "unreachable somewhere."
+          // The blocking boundary at the point the unlock progression got
+          // stuck (some dungeon(s) never became reachable through any
+          // order) - takes priority over the general tint below since this
+          // is specifically "the player gets stuck right here," not just
+          // "unreachable somewhere."
           ctx.fillStyle = 'rgba(230,30,200,0.65)';
           ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
           continue;
@@ -371,7 +402,14 @@ function renderWilderness(ctx) {
     ctx.textBaseline = 'alphabetic';
   }
 
-  for (const [superBossId, pos] of Object.entries(superBossMarkers)) {
+  // Labeled SB1/SB2/... by position in superBossMarkers' own key order (which
+  // mirrors SUPER_BOSSES' declaration order) rather than the id's own text -
+  // every current id starts "superBoss", so the old `slice(0, 2)` labeled
+  // every single marker "SU", indistinguishable on the map (raised by
+  // Timothy once a second superboss existed to collide with the first).
+  const superBossIdsInOrder = Object.keys(superBossMarkers);
+  for (const [markerIndex, superBossId] of superBossIdsInOrder.entries()) {
+    const pos = superBossMarkers[superBossId];
     const world = localToWorld(pos.screenId, pos.x, pos.y);
     if (!world) continue;
     const cx = world.wx * CELL + CELL / 2;
@@ -387,7 +425,7 @@ function renderWilderness(ctx) {
     ctx.font = 'bold 8px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(superBossId.slice(0, 2).toUpperCase(), cx, cy + 1);
+    ctx.fillText(`SB${markerIndex + 1}`, cx, cy + 1);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
   }
@@ -398,6 +436,19 @@ function renderSingleMap(ctx) {
   for (let y = 0; y < singleMapH; y++) {
     for (let x = 0; x < singleMapW; x++) {
       ctx.fillStyle = TILE_COLORS[singleGrid[y][x]] || '#000';
+      ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    }
+  }
+  if (dungeonCheckOverlay && dungeonCheckOverlay.phase === 'animating') {
+    for (const key of dungeonCheckOverlay.revealed) {
+      const [x, y] = key.split(',').map(Number);
+      ctx.fillStyle = 'rgba(46,196,182,0.45)'; // exploring - same teal as miniDungeonEntrance, reads as "in progress"
+      ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
+    }
+  } else if (dungeonCheckOverlay && dungeonCheckOverlay.phase === 'done') {
+    for (const key of dungeonCheckOverlay.unreached) {
+      const [x, y] = key.split(',').map(Number);
+      ctx.fillStyle = 'rgba(230,30,200,0.65)';
       ctx.fillRect(x * CELL, y * CELL, CELL, CELL);
     }
   }
@@ -415,7 +466,8 @@ function paintAt(x, y) {
   if (active.isWilderness && active.grid[y][x] === 'townEntrance') return;
   if (active.isWilderness && isSealedWorldEdge(x, y)) return;
   active.grid[y][x] = activeBrush;
-  if (active.isWilderness) checkOverlay = null; // stale as soon as the terrain changes
+  if (active.isWilderness) { checkOverlay = null; wildernessCheckAnimId++; } // stale as soon as the terrain changes
+  else { dungeonCheckOverlay = null; dungeonCheckAnimId++; }
 }
 
 function brushCells(cx, cy) {
@@ -451,6 +503,35 @@ function drawBrushPreview(ctx) {
     ctx.strokeRect(x * CELL + 0.5, y * CELL + 0.5, CELL - 1, CELL - 1);
   }
   ctx.restore();
+}
+
+// Tracked separately from saveAutosave() (which just persists to
+// localStorage on every real edit AND on a "reset from files" reload that
+// deliberately discards changes) - the two don't always agree on whether
+// the current state is "dirty" relative to disk, so each call site below
+// says explicitly which one it means.
+function updateUnsavedIndicator() {
+  const status = document.getElementById('unsavedChangesStatus');
+  if (!status) return;
+  status.textContent = unsavedChangeCount > 0
+    ? `${unsavedChangeCount} unsaved change${unsavedChangeCount === 1 ? '' : 's'}`
+    : '';
+  // Only #exportAllBtn ever calls clearDirty() on success (along with
+  // saveNewDungeonBtn) - #exportBtn ("Copy LEGEND/ROWS") just copies to the
+  // clipboard and can't clear this itself (the user still has to paste it
+  // somewhere), so it never glows: a glow that can't turn off is worse than
+  // no glow at all.
+  document.getElementById('exportAllBtn')?.classList.toggle('dirty', unsavedChangeCount > 0);
+}
+
+function markDirty() {
+  unsavedChangeCount++;
+  updateUnsavedIndicator();
+}
+
+function clearDirty() {
+  unsavedChangeCount = 0;
+  updateUnsavedIndicator();
 }
 
 function saveAutosave() {
@@ -520,6 +601,52 @@ function exportScreen(id) {
 
 function exportSingleMap() {
   return buildLegendRowsText(singleGrid, singleMapW, singleMapH);
+}
+
+// Whether the currently-loaded single map can be saved straight to disk via
+// /api/patch-single-map: it has to be a real existing file (excludes both
+// wilderness, which uses its own bulk-export path, and an in-progress "New
+// Dungeon" that has no file yet - that one's first save has to go through
+// /api/create-dungeon instead, which also handles main.js registration).
+function canSaveSingleMapToServer() {
+  if (currentMapKey === 'wilderness' || !serverAvailable) return false;
+  const def = SINGLE_MAPS[currentMapKey];
+  return Boolean(def && !def.isNewDungeon);
+}
+
+// #exportBtn's one action, named for what it actually does in each mode:
+// writes straight to disk when it can (any pre-existing single map, e.g. a
+// tool/dragon/mini/superboss dungeon, with the authoring server running),
+// otherwise falls back to the old copy-to-clipboard-and-paste-by-hand flow
+// (wilderness screens always use this - they're covered by "Export All
+// Changed to Files" instead - and so does any setup without the server).
+async function performExportOrSave() {
+  const status = document.getElementById('exportStatus');
+  if (canSaveSingleMapToServer()) {
+    status.textContent = 'Saving…';
+    try {
+      const { changed } = await postJson('/api/patch-single-map', { mapId: currentMapKey, legendRowsText: exportSingleMap() });
+      status.textContent = changed ? 'Saved to disk.' : 'Already up to date on disk.';
+      clearDirty();
+    } catch (err) {
+      status.textContent = `Failed: ${err.message}`;
+    }
+    return;
+  }
+  const text = currentMapKey === 'wilderness'
+    ? exportScreen(document.getElementById('exportSelect').value)
+    : exportSingleMap();
+  document.getElementById('exportOutput').value = text;
+  try {
+    await navigator.clipboard.writeText(text);
+    status.textContent = 'Copied to clipboard.';
+  } catch (err) {
+    status.textContent = 'Clipboard blocked — copy from the text box below.';
+  }
+}
+
+function updateExportBtnLabel() {
+  document.getElementById('exportBtn').textContent = canSaveSingleMapToServer() ? 'Save to Server' : 'Copy LEGEND/ROWS';
 }
 
 // --- Bulk export straight to disk (File System Access API) -----------------
@@ -735,13 +862,28 @@ function worldKeyFor(marker) {
   return world ? { x: world.wx, y: world.wy } : null;
 }
 
-function checkMap() {
+// The verdict (ok/fail, status text) is decided synchronously below, exactly
+// as before this task's animation was added - only the on-screen reveal is
+// animated, staged wave by wave against `result.passes` (see reachability.js):
+// wave 0 is the toolless flood, each wave after it is the re-flood triggered
+// by a dungeon unlocking. Only each wave's *new* tiles (this pass's reached
+// set minus the previous one's) animate in, in BFS order, at a rate the
+// checkMapSpeed slider controls - same "Set iteration order IS discovery
+// order" trick checkDungeonMap uses. A wave that unlocks nothing new (e.g. the
+// portal/dragon dungeons, which don't gate any terrain) has an empty delta and
+// is skipped instantly, no pause. Once every wave has settled, the overlay
+// swaps to the exact same final toollessReached/tooledReached/frontier tinting
+// this function already produced before animation existed.
+function checkMap(ctx) {
   const status = document.getElementById('checkStatus');
   const town = findTownEntrance();
+  wildernessCheckAnimId++;
+  const myAnimId = wildernessCheckAnimId;
   if (!town) {
     checkOverlay = null;
     status.textContent = 'No townEntrance tile found on the map - cannot check.';
     status.className = 'fail';
+    render(ctx);
     return;
   }
 
@@ -749,46 +891,208 @@ function checkMap() {
   const toollessReached = floodFillReachable(WORLD_W, WORLD_H, town, (x, y) => isPassable(x, y, TOOLLESS_PASSABLE_KINDS));
   const tooledReached = floodFillReachable(WORLD_W, WORLD_H, town, (x, y) => isPassable(x, y, TOOLED_PASSABLE_KINDS));
 
-  // Staged progression check: each tool's terrain only unlocks after
-  // confirming that tool's own dungeon is reachable using whatever's
-  // already unlocked - not just "reachable with some combination of
-  // tools," which would miss a chicken-and-egg gate (e.g. the pick
-  // dungeon sitting behind thicket when the axe dungeon itself is what's
-  // unreachable). See reachability.js (also unit tested there).
-  const entrances = [
+  // Order-independent progression check: unlock whichever dungeons become
+  // reachable, in whatever order that actually happens, and repeat until a
+  // full pass unlocks nothing new. Doesn't assume a fixed axe -> pick ->
+  // canoe order - a different real order (or a future different tool set)
+  // is just as sound as long as every dungeon eventually unlocks. See
+  // reachability.js (also unit tested there).
+  const dungeons = [
     { id: 'axe', label: 'axe dungeon', pos: worldKeyFor(toolDungeonMarkers.axe), unlocks: TOOL_UNLOCK_KINDS.axe },
     { id: 'pick', label: 'pick dungeon', pos: worldKeyFor(toolDungeonMarkers.pick), unlocks: TOOL_UNLOCK_KINDS.pick },
     { id: 'canoe', label: 'canoe dungeon (boat)', pos: worldKeyFor(toolDungeonMarkers.canoe), unlocks: TOOL_UNLOCK_KINDS.canoe },
     { id: 'portal', label: 'portal dungeon', pos: worldKeyFor(toolDungeonMarkers.portal), unlocks: [] },
-    { id: null, label: 'dragon dungeon', pos: worldKeyFor(dungeonMarker), unlocks: [] },
+    { id: 'dragon', label: 'dragon dungeon', pos: worldKeyFor(dungeonMarker), unlocks: [] },
   ];
 
   const result = checkProgression({
-    width: WORLD_W, height: WORLD_H, town, isPassable, toollessKinds: TOOLLESS_PASSABLE_KINDS, entrances,
+    width: WORLD_W, height: WORLD_H, town, isPassable, toollessKinds: TOOLLESS_PASSABLE_KINDS, dungeons,
   });
 
-  checkOverlay = { toollessReached, tooledReached, frontier: result.frontier };
+  const finalOverlay = { phase: 'done', toollessReached, tooledReached, frontier: result.frontier };
+  let finalStatusText;
+  let finalStatusClass;
 
   if (!result.ok) {
-    const stage = entrances[result.stageIndex];
-    const priorStep = result.stageIndex === 0 ? 'from town with no tools' : `after getting the ${entrances[result.stageIndex - 1].id}`;
-    if (!stage.pos) {
-      status.textContent = `⚠️ Can't check past the ${stage.label} - it hasn't been placed yet.`;
-    } else {
-      status.textContent = `❌ The ${stage.label} is NOT reachable ${priorStep} — magenta tiles on the map mark exactly where the path is blocked.`;
+    const unplaced = result.stuck.filter((d) => !d.placed);
+    const unreachable = result.stuck.filter((d) => d.placed);
+    const parts = [];
+    if (unplaced.length > 0) {
+      parts.push(`can't check the ${unplaced.map((d) => d.label).join(', ')} - not placed yet`);
     }
+    if (unreachable.length > 0) {
+      parts.push(`the ${unreachable.map((d) => d.label).join(', ')} ${unreachable.length === 1 ? 'is' : 'are'} NOT reachable no matter what order the other tools/dungeons are obtained in`);
+    }
+    finalStatusText = `❌ ${parts.join('; ')} — magenta tiles on the map mark exactly where the path is blocked.`;
+    finalStatusClass = 'fail';
+  } else {
+    // Superboss markers aren't part of the tool-gated progression chain above
+    // (they don't unlock anything further, so there's no "stage order" to
+    // check them against) - each one just needs to be reachable once every
+    // tool is in hand, checked here against tooledReached directly rather
+    // than folded into checkProgression's staged entrances list. Only placed
+    // markers are checked - an unplaced one (screenId still null) has nothing
+    // to verify yet, same as the tool-dungeon "hasn't been placed yet" case
+    // above.
+    const unreachableSuperBosses = [];
+    for (const [superBossId, pos] of Object.entries(superBossMarkers)) {
+      if (!pos.screenId) continue;
+      const world = worldKeyFor(pos);
+      if (!world || !tooledReached.has(`${world.x},${world.y}`)) {
+        unreachableSuperBosses.push(superBossId);
+      }
+    }
+
+    if (unreachableSuperBosses.length > 0) {
+      const verb = unreachableSuperBosses.length === 1 ? 'is' : 'are';
+      finalStatusText = `❌ ${unreachableSuperBosses.join(', ')} ${verb} NOT reachable even with every tool — red tiles on the map mark what's cut off.`;
+      finalStatusClass = 'fail';
+    } else {
+      // What actually matters (Timothy's own bar): can the player navigate,
+      // get the treasure/tools, and reach the dragon - not "is literally
+      // every grass tile in the world reachable." The entrance chain above is
+      // the real check; isolated pockets elsewhere are still visibly tinted
+      // red on the map (nothing hidden) but aren't treated as a failure here
+      // unless something is actually placed there.
+      finalStatusText = '✅ Full progression is soundly gated: axe, pick, canoe (boat), portal and dragon dungeons all become reachable through some valid order of getting tools — and every placed superboss is reachable with every tool.';
+      finalStatusClass = 'ok';
+    }
+  }
+
+  status.textContent = '🔎 Checking…';
+  status.className = '';
+
+  const speedSlider = document.getElementById('checkMapSpeed');
+  const settledFree = new Set(); // wave 0 (toolless) tiles - no tint, freely reachable
+  const settledToolGated = new Set(); // later-wave tiles - yellow tint, tool-gated
+  const exploring = new Set(); // the wave currently animating in
+  let waveIndex = 0;
+  let order = [];
+  let cursor = 0;
+
+  function startWave() {
+    if (myAnimId !== wildernessCheckAnimId) return; // superseded by a later check, an edit, or a marker move
+    if (waveIndex >= result.passes.length) {
+      checkOverlay = finalOverlay;
+      status.textContent = finalStatusText;
+      status.className = finalStatusClass;
+      render(ctx);
+      return;
+    }
+    const previouslyReached = waveIndex === 0 ? new Set() : result.passes[waveIndex - 1];
+    order = [...result.passes[waveIndex]].filter((key) => !previouslyReached.has(key));
+    cursor = 0;
+    exploring.clear();
+    if (order.length === 0) {
+      waveIndex++;
+      startWave();
+      return;
+    }
+    requestAnimationFrame(step);
+  }
+
+  function step() {
+    if (myAnimId !== wildernessCheckAnimId) return;
+    const tilesPerFrame = Math.max(1, Number(speedSlider.value) || 1);
+    const end = Math.min(order.length, cursor + tilesPerFrame);
+    for (; cursor < end; cursor++) exploring.add(order[cursor]);
+    checkOverlay = { phase: 'animating', settledFree, settledToolGated, exploring };
+    render(ctx);
+    if (cursor < order.length) {
+      requestAnimationFrame(step);
+      return;
+    }
+    const target = waveIndex === 0 ? settledFree : settledToolGated;
+    for (const key of order) target.add(key);
+    waveIndex++;
+    setTimeout(startWave, 400);
+  }
+
+  startWave();
+}
+
+// Dungeon-interior maps have no tool-gating at all (unlike the wilderness),
+// so this is far simpler than checkMap() above: one flood-fill from the
+// door/entrance tile, then every walkable tile in the map must be in that
+// reached set - exactly what tests/superBosses.test.js's assertFullyReachable
+// enforces at the file level (see 'exit'/'guardian' walkable flags in
+// js/tiles.js), just runnable live in the editor instead of via npm test
+// after the fact. This is what would have caught superBossFive's
+// disconnected-tile bug.
+function findDungeonStart(grid, w, h) {
+  const starts = [];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (grid[y][x] === 'exit' || grid[y][x] === 'miniDungeonEntrance') starts.push({ x, y });
+    }
+  }
+  return starts;
+}
+
+// The verdict (unreached, ok/fail) is decided synchronously below, same as
+// before Task 15's animation was added - only the on-screen reveal of
+// `reached` is animated, at a rate the speed slider controls (tiles
+// revealed per frame). `reached` is a Set, and Sets iterate in insertion
+// order in JS, which for floodFillReachable IS the BFS discovery order -
+// so replaying `[...reached]` is literally "replay the path being checked,"
+// no separate order-tracking needed.
+function checkDungeonMap(ctx) {
+  const status = document.getElementById('dungeonCheckStatus');
+  const { grid, w, h } = getActive();
+  dungeonCheckAnimId++;
+  const myAnimId = dungeonCheckAnimId;
+
+  const starts = findDungeonStart(grid, w, h);
+  if (starts.length !== 1) {
+    dungeonCheckOverlay = null;
+    status.textContent = starts.length === 0
+      ? "⚠️ No door/entrance tile ('exit' or 'miniDungeonEntrance') found - place one before checking."
+      : `⚠️ Found ${starts.length} door/entrance tiles - there should be exactly one to check from.`;
     status.className = 'fail';
     return;
   }
 
-  // What actually matters (Timothy's own bar): can the player navigate,
-  // get the treasure/tools, and reach the dragon - not "is literally every
-  // grass tile in the world reachable." The entrance chain above is the
-  // real check; isolated pockets elsewhere are still visibly tinted red on
-  // the map (nothing hidden) but aren't treated as a failure here unless
-  // something is actually placed there.
-  status.textContent = '✅ Full progression is soundly gated: town → axe → pick → canoe (boat) → portal → dragon dungeon, each reachable in order.';
-  status.className = 'ok';
+  const isPassable = (x, y) => Boolean(TILES[grid[y][x]] && TILES[grid[y][x]].walkable);
+  const reached = floodFillReachable(w, h, starts[0], isPassable);
+
+  const unreached = new Set();
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const key = `${x},${y}`;
+      if (isPassable(x, y) && !reached.has(key)) unreached.add(key);
+    }
+  }
+
+  const order = [...reached];
+  const revealed = new Set();
+  let cursor = 0;
+  status.textContent = '🔎 Checking…';
+  status.className = '';
+
+  const speedSlider = document.getElementById('dungeonCheckSpeed');
+  function step() {
+    if (myAnimId !== dungeonCheckAnimId) return; // superseded by a later check, an edit, or a map switch
+    const tilesPerFrame = Math.max(1, Number(speedSlider.value) || 1);
+    const end = Math.min(order.length, cursor + tilesPerFrame);
+    for (; cursor < end; cursor++) revealed.add(order[cursor]);
+    dungeonCheckOverlay = { phase: 'animating', revealed };
+    render(ctx);
+    if (cursor < order.length) {
+      requestAnimationFrame(step);
+      return;
+    }
+
+    dungeonCheckOverlay = { phase: 'done', unreached };
+    if (unreached.size > 0) {
+      status.textContent = `❌ ${unreached.size} walkable tile(s) are unreachable from the door - magenta tiles on the map mark exactly which ones.`;
+      status.className = 'fail';
+    } else {
+      status.textContent = '✅ Every walkable tile is reachable from the door.';
+      status.className = 'ok';
+    }
+    render(ctx);
+  }
+  requestAnimationFrame(step);
 }
 
 async function init() {
@@ -810,6 +1114,7 @@ async function init() {
     toolDungeonMarkers = savedRaw.toolDungeonMarkers || {};
     superBossMarkers = savedRaw.superBossMarkers || {};
     autosaveStatus.textContent = 'Restored unsaved changes from your last session.';
+    unsavedChangeCount = 1; // exact count from the previous session is unknown, but it's definitely not zero
   } else {
     grid = await loadAllScreens();
   }
@@ -835,6 +1140,33 @@ async function init() {
       superBossMarkers[superBossId] = { screenId: entry.screenId, x: entry.x, y: entry.y, hasDungeon: entry.hasDungeon };
     }
   }
+  // Every real superboss dungeon file so far (superBossOneDungeon.js through
+  // superBossFive.js) follows dungeonMapId's own naming exactly -
+  // `js/maps/superBosses/${dungeonMapId}.js` exporting `${dungeonMapId}Map` -
+  // and paints with the same caveFloor/caveWall/exit/guardian palette "New
+  // Dungeon" mode uses. Without this, none of these existing files were
+  // selectable in the Map dropdown at all (only a brand-new dungeon created
+  // via "New Dungeon" in that same browser session was, since that button's
+  // handler is the only other thing that ever adds to SINGLE_MAPS, and it's
+  // lost on reload) - so neither the order-independent progression check
+  // nor the new dungeon-interior Check Map could actually be pointed at
+  // superBossFive's known-broken map without this. Deliberately NOT
+  // isNewDungeon - these files already exist, so they use the same
+  // Copy-LEGEND/ROWS-and-paste-by-hand save path every other existing
+  // single map (dragon/tool dungeons, mini-dungeons) already uses, not
+  // "Save New Dungeon to Server."
+  for (const superBossId of SUPER_BOSS_IDS) {
+    const entry = superBossesMod.SUPER_BOSSES[superBossId];
+    if (!entry.hasDungeon || !entry.dungeonMapId || SINGLE_MAPS[entry.dungeonMapId]) continue;
+    SINGLE_MAPS[entry.dungeonMapId] = {
+      label: `${superBossId}'s dungeon (${entry.dungeonMapId})`,
+      modulePath: `../../js/maps/superBosses/${entry.dungeonMapId}.js`,
+      exportName: `${entry.dungeonMapId}Map`,
+      palette: NEW_DUNGEON_PALETTE,
+      defaultKind: 'caveFloor',
+    };
+  }
+  updateUnsavedIndicator();
 
   const dungeonReadout = document.getElementById('dungeonReadout');
   function updateDungeonReadout() {
@@ -872,6 +1204,19 @@ async function init() {
   }
   superBossSelect.addEventListener('change', updateSuperBossReadout);
 
+  // "New Dungeon" mode's optional hook-up-to-a-superboss dropdown (see
+  // saveNewDungeonBtn below) - same SUPER_BOSS_IDS list as superBossSelect
+  // above, kept as a separate <select> since the two live in different
+  // control groups (wilderness-only vs. new-dungeon-only) and serve
+  // different purposes (placing a marker vs. saving a dungeon file).
+  const hookUpSuperBossSelect = document.getElementById('hookUpSuperBossSelect');
+  for (const superBossId of SUPER_BOSS_IDS) {
+    const opt = document.createElement('option');
+    opt.value = superBossId;
+    opt.textContent = superBossId;
+    hookUpSuperBossSelect.appendChild(opt);
+  }
+
   function currentPalette() {
     return currentMapKey === 'wilderness' ? WILDERNESS_PALETTE : SINGLE_MAPS[currentMapKey].palette;
   }
@@ -903,6 +1248,11 @@ async function init() {
 
   async function switchMap(key) {
     currentMapKey = key;
+    dungeonCheckOverlay = null; // stale as soon as a different map is loaded
+    dungeonCheckAnimId++;
+    document.getElementById('dungeonCheckStatus').textContent = '';
+    document.getElementById('dungeonCheckStatus').className = '';
+    updateExportBtnLabel();
     setModeVisibility();
     // Gated separately from setModeVisibility's wilderness-vs-single-map
     // split - "Save New Dungeon to Server" only makes sense for a
@@ -989,6 +1339,7 @@ async function init() {
     undoStacks[id] = [];
     await switchMap(id);
     saveAutosave();
+    markDirty();
     autosaveStatus.textContent = `Created new blank dungeon "${id}" (${width}x${height}).`;
   });
 
@@ -1026,6 +1377,7 @@ async function init() {
     }
     undoStacks[currentMapKey] = []; // a freshly-reloaded map has nothing sensible left to undo into
     saveAutosave();
+    clearDirty(); // now matches disk again - discarded whatever was unsaved
     autosaveStatus.textContent = 'Reloaded from files.';
     render(ctx);
   });
@@ -1036,6 +1388,7 @@ async function init() {
     updateToolDungeonReadout();
     updateSuperBossReadout();
     saveAutosave();
+    markDirty();
     render(ctx);
   }
   document.getElementById('undoBtn').addEventListener('click', doUndo);
@@ -1124,8 +1477,24 @@ async function init() {
   });
 
   document.getElementById('checkMapBtn').addEventListener('click', () => {
-    checkMap();
-    render(ctx);
+    checkMap(ctx);
+  });
+
+  document.getElementById('checkDungeonMapBtn').addEventListener('click', () => {
+    checkDungeonMap(ctx);
+  });
+
+  document.getElementById('jumpToExportBtn').addEventListener('click', async () => {
+    const target = currentMapKey === 'wilderness'
+      ? document.getElementById('exportAllBtn')
+      : document.getElementById('exportRow');
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('export-flash');
+    setTimeout(() => target.classList.remove('export-flash'), 1300);
+    // When the click can just save straight to disk, do that too instead of
+    // making the user scroll down and click a second button - the scroll is
+    // still worth doing so they can see the result land.
+    if (canSaveSingleMapToServer()) await performExportOrSave();
   });
 
   const brushSizeInput = document.getElementById('brushSize');
@@ -1169,8 +1538,9 @@ async function init() {
       if (local) {
         dungeonMarker = local;
         updateDungeonReadout();
-        checkOverlay = null; // stale as soon as the marker moves
+        checkOverlay = null; wildernessCheckAnimId++; // stale as soon as the marker moves
         saveAutosave();
+        markDirty();
       }
       placingDungeon = false;
       placeDungeonBtn.classList.remove('active');
@@ -1184,8 +1554,9 @@ async function init() {
       if (local) {
         toolDungeonMarkers[placingToolDungeon] = local;
         updateToolDungeonReadout();
-        checkOverlay = null; // stale as soon as a marker moves
+        checkOverlay = null; wildernessCheckAnimId++; // stale as soon as a marker moves
         saveAutosave();
+        markDirty();
       }
       placingToolDungeon = null;
       placeToolDungeonBtn.classList.remove('active');
@@ -1199,8 +1570,9 @@ async function init() {
       if (local) {
         superBossMarkers[placingSuperBoss] = { ...local, hasDungeon: superBossHasDungeonCheckbox.checked };
         updateSuperBossReadout();
-        checkOverlay = null; // stale as soon as a marker moves
+        checkOverlay = null; wildernessCheckAnimId++; // stale as soon as a marker moves
         saveAutosave();
+        markDirty();
       }
       placingSuperBoss = null;
       placeSuperBossBtn.classList.remove('active');
@@ -1227,7 +1599,7 @@ async function init() {
   window.addEventListener('mouseup', () => {
     // Autosave once per stroke (not per mousemove) - JSON-serializing a large
     // grid on every pixel of a drag would be needlessly slow.
-    if (painting) saveAutosave();
+    if (painting) { saveAutosave(); markDirty(); }
     painting = false;
   });
 
@@ -1238,17 +1610,7 @@ async function init() {
     exportSelect.appendChild(opt);
   }
 
-  document.getElementById('exportBtn').addEventListener('click', async () => {
-    const text = currentMapKey === 'wilderness' ? exportScreen(exportSelect.value) : exportSingleMap();
-    document.getElementById('exportOutput').value = text;
-    const status = document.getElementById('exportStatus');
-    try {
-      await navigator.clipboard.writeText(text);
-      status.textContent = 'Copied to clipboard.';
-    } catch (err) {
-      status.textContent = 'Clipboard blocked — copy from the text box below.';
-    }
-  });
+  document.getElementById('exportBtn').addEventListener('click', performExportOrSave);
 
   const repoStatus = document.getElementById('repoStatus');
   const chooseRepoBtn = document.getElementById('chooseRepoBtn');
@@ -1260,6 +1622,7 @@ async function init() {
   // comment for why an OPTIONS preflight is what distinguishes "server
   // running" from "no server, or a plain static file server."
   serverAvailable = await checkServerAvailable();
+  updateExportBtnLabel();
 
   if (serverAvailable) {
     chooseRepoBtn.style.display = 'none';
@@ -1268,6 +1631,7 @@ async function init() {
       exportAllStatus.textContent = 'Writing…';
       try {
         exportAllStatus.textContent = await exportAllToServer();
+        clearDirty();
       } catch (err) {
         exportAllStatus.textContent = `Failed: ${err.message}`;
       }
@@ -1290,6 +1654,7 @@ async function init() {
       exportAllStatus.textContent = 'Writing…';
       try {
         exportAllStatus.textContent = await exportAllToFiles();
+        clearDirty();
       } catch (err) {
         exportAllStatus.textContent = `Failed: ${err.message}`;
       }
@@ -1312,17 +1677,26 @@ async function init() {
       return;
     }
 
+    // Multiple `exit` tiles are fine (raised 2026-09-13 - superBossThree's
+    // dungeon wants two doors, either usable to leave, only one as the
+    // actual spawn) - js/main.js's exitMap handler doesn't look at which
+    // specific exit tile the player is standing on at all, it just returns
+    // them to this dungeon's own wilderness entrance, so any number already
+    // works correctly in the real game. Only startPosition needs picking:
+    // the first exit tile in scan order, same as tests/superBosses.test.js's
+    // own tolerant assertion (start tile must be tagged 'exit', not "the
+    // only one").
     let exitPos = null;
     let exitCount = 0;
     let guardianCount = 0;
     for (let y = 0; y < singleMapH; y++) {
       for (let x = 0; x < singleMapW; x++) {
-        if (singleGrid[y][x] === 'exit') { exitCount++; exitPos = { x, y }; }
+        if (singleGrid[y][x] === 'exit') { exitCount++; if (!exitPos) exitPos = { x, y }; }
         if (singleGrid[y][x] === 'guardian') guardianCount++;
       }
     }
-    if (exitCount !== 1) {
-      alert(`New dungeon needs exactly one 'exit' tile placed (found ${exitCount}) - that's where the player starts.`);
+    if (exitCount < 1) {
+      alert(`New dungeon needs at least one 'exit' tile placed (found ${exitCount}) - that's where the player starts.`);
       return;
     }
     if (guardianCount === 0) {
@@ -1337,6 +1711,26 @@ async function init() {
       return;
     }
 
+    // Optional hook-up, added after superBossTwo's dungeon needed a manual
+    // dungeonMapId edit afterward (raised 2026-09-13) - "(none)" leaves that
+    // link for the author to add by hand, same as every dungeon before this
+    // dropdown existed. superBossesMod.SUPER_BOSSES is the snapshot loaded
+    // at page init, not re-fetched here - fine for a same-session "already
+    // has a different dungeon" warning, since re-linking one boss's dungeon
+    // to a different map file mid-session is exactly the rare case worth
+    // asking about, not something to silently overwrite.
+    const hookUpSuperBossId = hookUpSuperBossSelect.value || null;
+    let hookUpSuperBoss = null;
+    if (hookUpSuperBossId) {
+      const existing = superBossesMod.SUPER_BOSSES[hookUpSuperBossId];
+      if (existing.dungeonMapId && existing.dungeonMapId !== currentMapKey) {
+        const proceed = confirm(`${hookUpSuperBossId} already has a dungeon ('${existing.dungeonMapId}'). Replace it with '${currentMapKey}'?`);
+        if (!proceed) return;
+      }
+      const marker = superBossMarkers[hookUpSuperBossId];
+      hookUpSuperBoss = { id: hookUpSuperBossId, screenId: marker.screenId, x: marker.x, y: marker.y };
+    }
+
     saveNewDungeonStatus.textContent = 'Saving…';
     try {
       await postJson('/api/create-dungeon', {
@@ -1345,8 +1739,32 @@ async function init() {
         startX: exitPos.x,
         startY: exitPos.y,
         guardianMonsterId,
+        hookUpSuperBoss,
       });
-      saveNewDungeonStatus.textContent = `Saved js/maps/superBosses/${currentMapKey}.js and registered it in js/main.js.`;
+      if (hookUpSuperBossId) {
+        // Keep the in-memory marker (and its color on the wilderness canvas)
+        // in sync without a reload - dungeonMapId itself isn't tracked
+        // client-side (see patchSuperBossEntry's own comment in server.js),
+        // only hasDungeon, which the canvas draw loop actually reads.
+        superBossMarkers[hookUpSuperBossId].hasDungeon = true;
+        superBossesMod.SUPER_BOSSES[hookUpSuperBossId].dungeonMapId = currentMapKey;
+        superBossesMod.SUPER_BOSSES[hookUpSuperBossId].hasDungeon = true;
+      }
+      // The file now exists on disk and the server has registered it for
+      // /api/patch-single-map this session (see handleCreateDungeon) - so
+      // every save after this first one should go through the normal
+      // "Save to Server" button instead of re-running this whole create-
+      // dungeon flow (re-prompting for guardianMonsterId and rewriting the
+      // whole file every time, raised 2026-09-13). Same visibility toggle
+      // switchMap runs on mode-switch, just applied immediately instead of
+      // waiting for the author to leave and come back to this map.
+      def.isNewDungeon = false;
+      newDungeonOnlyEls.forEach((el) => { el.style.display = 'none'; });
+      updateExportBtnLabel();
+      saveNewDungeonStatus.textContent = hookUpSuperBossId
+        ? `Saved js/maps/superBosses/${currentMapKey}.js, registered it in js/main.js, and hooked it up to ${hookUpSuperBossId} in js/data/superBosses.js. Further saves will use "Save to Server" above.`
+        : `Saved js/maps/superBosses/${currentMapKey}.js and registered it in js/main.js. Further saves will use "Save to Server" above.`;
+      clearDirty();
     } catch (err) {
       saveNewDungeonStatus.textContent = `Failed: ${err.message}`;
     }

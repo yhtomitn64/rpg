@@ -1,5 +1,6 @@
 import { DEFAULT_DUNGEON_ENTRANCE_POSITION, DEFAULT_ITEM_MENU_AUTO_CLOSE_MS, loadState } from '../state.js';
 import { upsertSlot } from './saveSlots.js';
+import { QUEST_REQUIREMENTS, getQuestRequirement } from './quests.js';
 
 // Hardcoded characters for local testing only, raised 2026-09-04 while
 // verifying the battle-popup collision fix needed a level with every
@@ -63,7 +64,115 @@ const DEBUG_CHARACTERS = {
       featureFlags: { audioBeta: false, mechanicExplainersBeta: false },
     },
   }),
+  // Built 2026-09-10 at Timothy's request while visually checking the map's
+  // static-layer cache: "make our super test character have walking lines
+  // all over and different thickness to really stress the system", plus a
+  // portal, full quests to turn in, and enough power to ignore anything that
+  // wanders into the way. Every one of those is a thing the renderer has to
+  // draw, so this is really a rendering stress fixture that happens to be a
+  // character.
+  stress: () => {
+    const base = DEBUG_CHARACTERS.level10();
+    return {
+      ...base,
+      player: { level: 20, xp: 0, hp: 400, maxHp: 400, attack: 120, defense: 90, speed: 40, gold: 99999, emoji: '🧙' },
+      equipment: {
+        weapon: 'ironSword', head: 'ironHelm', body: 'ironArmor', legs: 'ironGreaves',
+        accessory1: null, accessory2: null, ring1: null, ring2: null,
+      },
+      inventory: [
+        { itemId: 'potion', quantity: 99 },
+        { itemId: 'axe', quantity: 1 },
+        { itemId: 'miningPick', quantity: 1 },
+        { itemId: 'boat', quantity: 1 },
+        { itemId: 'ironScrap', quantity: 99 },
+      ],
+      // Every quest sitting at a turn-in-ready count, so the quest board
+      // glows the moment the character loads rather than needing a grind
+      // first - the glow is one of the things whose paint order moved.
+      questProgress: Object.fromEntries(
+        Object.keys(QUEST_REQUIREMENTS).map((id) => [id, getQuestRequirement(id, 1)]),
+      ),
+      // A placed return portal, so the portal marker, its outward-bleeding
+      // shadow and its pull animation can all be looked at without first
+      // finding and using a portal scroll.
+      portal: { map: 'center', x: 10, y: 10 },
+      visited: buildStressTrails(),
+    };
+  },
 };
+
+// Wall-to-wall worn path across the whole 5x5 wilderness cluster, at every
+// wear level the trail supports.
+//
+// Deliberately not a uniform flood-fill: trail stroke width scales with visit
+// count up to TRAIL_WEAR_CAP (js/systems/trail.js), and the widths of two
+// adjacent tiles are averaged for the stroke between them, so a map where
+// every tile has the same count exercises exactly one width and none of the
+// blending. Banding the counts instead puts every width, every taper and
+// every join on screen at once - which is the point of a stress fixture.
+//
+// `dirs` is what decides how many strokes a tile draws, so giving most tiles
+// all four is the worst case on purpose: four gradient-stroked curves plus a
+// hub per tile, which is what made the trail ~92% of all draw calls in the
+// measurements behind docs/superpowers/plans/2026-09-10-static-layer-cache-plan.md.
+function buildStressTrails() {
+  const WILDERNESS = [
+    'center', 'north', 'south', 'east', 'west',
+    'northeast', 'northwest', 'southeast', 'southwest',
+    'farNorthwest', 'northNorthwest', 'farNorth', 'northNortheast', 'farNortheast',
+    'westNorthwest', 'farWest', 'westSouthwest',
+    'eastNortheast', 'farEast', 'eastSoutheast',
+    'southSouthwest', 'farSouth', 'southSoutheast',
+    'farSouthwest', 'farSoutheast',
+  ];
+  const W = 30;
+  const H = 22;
+
+  // Wear count per tile. Banded rather than uniform: stroke width scales with
+  // visit count up to TRAIL_WEAR_CAP, and two neighbours average their widths
+  // for the stroke between them, so a flat fill would exercise exactly one
+  // width and none of the blending.
+  const countAt = (x, y) => 1 + ((x + y * 3) % 10);
+
+  // Which edges are crossed, decided PER EDGE rather than per tile, so both
+  // tiles sharing an edge always agree about it.
+  //
+  // This matters more than it looks. Real play can only ever produce symmetric
+  // edges - a step calls markDirection on the tile being left and markVisited
+  // with the opposite direction on the tile being entered, both halves of one
+  // crossing (js/systems/exploration.js). The first version of this fixture
+  // picked each tile's dirs from a hash independently, which let a tile reach
+  // a stroke toward a neighbour that drew nothing back, so the stroke stopped
+  // dead at the tile boundary. Timothy saw exactly that and reasonably read it
+  // as a rendering bug: "path having square edge when dark/thick meets either
+  // thin/light or non-existing path". A fixture that generates states the game
+  // cannot produce costs more than it is worth.
+  const hasEdge = (x, y, horizontal) => {
+    const h = (x * 7919 + y * 104729 + (horizontal ? 1 : 0) * 15485863) % 97;
+    return h > 12;   // ~87% of edges crossed: dense, with real dead ends in it
+  };
+
+  const visited = {};
+  for (const screenId of WILDERNESS) {
+    const tiles = {};
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const dirs = [];
+        // Each edge is asked about once, from whichever side; both tiles read
+        // the same answer for it.
+        if (y > 0 && hasEdge(x, y - 1, false)) dirs.push('n');
+        if (y < H - 1 && hasEdge(x, y, false)) dirs.push('s');
+        if (x > 0 && hasEdge(x - 1, y, true)) dirs.push('w');
+        if (x < W - 1 && hasEdge(x, y, true)) dirs.push('e');
+        tiles[`${x},${y}`] = { count: countAt(x, y), dirs };
+      }
+    }
+    visited[screenId] = tiles;
+  }
+  return visited;
+}
+
 
 // Reads ?debug=<key> from the given query string (defaults to the real
 // page's) and, if it names a known debug character, upserts a save slot

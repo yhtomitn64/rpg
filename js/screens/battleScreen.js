@@ -85,6 +85,20 @@ let playerStunDebuff = null;
 let lacerateRetriggerOpen = false;
 let lacerateRetriggerStartedAt = null;
 let abilityActionInFlight = false;
+// Dedicated re-entrancy guard for Faultline/sweep specifically (hardcoded to
+// the 'sweep' ability id - tests/abilities.test.js's "only Faultline has the
+// aoe flag set" pins that it's the only ability.aoe today, so this doesn't
+// need to be a generic per-ability set). True for the entire span from
+// Faultline's press to its last staggered hit resolving, unlike
+// abilityActionInFlight above, which Faultline's own `ability.aoe` branch now
+// releases early (before the stagger loop starts) so Attack/Flee/other
+// abilities aren't locked out for that whole ~1s+ window - see that branch's
+// own comment. Without this, a second Faultline press slipping through
+// during that window (e.g. a fast double-click - a dispatched click event
+// isn't blocked by a stale `disabled` attribute alone; see the "instant it
+// comes off cooldown" test's own comment on jsdom firing click on a disabled
+// button) would start a second overlapping sweep loop.
+let aoeSweepInFlight = false;
 let attackStreak = 0;
 let attackCooldownMs = 0;
 // Denominator for Attack's cooldown-wipe button overlay - captured at the
@@ -192,6 +206,15 @@ function applyOnHitEffects(target, damage, damageMultiplier = 1) {
     const procDamage = Math.round(playerEffectBonuses.elementalProcDamage * damageMultiplier);
     target.hp = Math.max(0, target.hp - procDamage);
     log.push(`🔥 Bonus fire damage to ${target.name}: ${procDamage}!`);
+    // Counts toward the DPS total like the swing that triggered it - a raw
+    // addition (not recordPlayerDamage(), used at every direct-hit site)
+    // since a proc isn't a swing of its own and shouldn't compete for/pop a
+    // "New Max!" badge under the triggering move's moveKey. Every direct-hit
+    // call site (Attack, single-target abilities, Faultline's sweep loop,
+    // the extra-target stagger loop) routes through this shared function, so
+    // fixing it here covers all of them at once rather than needing a
+    // separate addition at each call site.
+    battleDamageDealt += procDamage;
   }
 }
 
@@ -222,7 +245,15 @@ function pickRandomOtherLivingIndices(excludeIndex, count) {
 
 function openLacerateRetriggerWindow() {
   lacerateRetriggerOpen = true;
-  lacerateRetriggerStartedAt = performance.now();
+  // Date.now(), not performance.now() - matches every other elapsed-time
+  // read in this file (windup start/complete in js/systems/parry.js, parry
+  // cooldown, buff durations). Switched 2026-09-12: performance.now()'s
+  // extra precision/clock-adjustment immunity buys nothing over a ~1.2s UI
+  // timing window, and the mismatch was the one thing blocking
+  // tests/battleScreenDom.test.js's Lacerate-retrigger tests from using the
+  // same t.mock.timers fake clock as everything else in this file - Node's
+  // mock.timers has no 'performance' entry in its supported apis.
+  lacerateRetriggerStartedAt = Date.now();
 }
 
 function closeLacerateRetriggerWindow() {
@@ -236,7 +267,7 @@ function closeLacerateRetriggerWindow() {
 // duration; missing it (early, late, or already expired) does nothing.
 function handleLacerateRetriggerPress() {
   const lacerate = ABILITIES.find((a) => a.id === 'slash');
-  const elapsedMs = performance.now() - lacerateRetriggerStartedAt;
+  const elapsedMs = Date.now() - lacerateRetriggerStartedAt;
   const elapsedPercent = Math.min(100, (elapsedMs / lacerate.retrigger.windowMs) * 100);
   closeLacerateRetriggerWindow();
   if (resolveTimingHit(elapsedPercent, lacerate.retrigger.sweetSpotStartPercent, lacerate.retrigger.sweetSpotEndPercent)) {
@@ -831,7 +862,7 @@ function abilityButtonEntries() {
       // updateMenu()) can measure real elapsed time a hair past windowMs
       // from ordinary setInterval jitter - still the same instant the
       // sweet spot's upper edge covers, not a new one past it.
-      const elapsedPercent = Math.min(100, ((performance.now() - lacerateRetriggerStartedAt) / ability.retrigger.windowMs) * 100);
+      const elapsedPercent = Math.min(100, ((Date.now() - lacerateRetriggerStartedAt) / ability.retrigger.windowMs) * 100);
       return elapsedPercent >= ability.retrigger.sweetSpotStartPercent && elapsedPercent <= ability.retrigger.sweetSpotEndPercent;
     })();
     // playerStunDebuff already blocks playerUseAbility itself (see its own
@@ -1589,9 +1620,13 @@ function handleKeydown(event) {
   }
   if (event.code === 'Space') {
     // Super Scream lives on Space instead of a digit key. The existing
-    // abilityActionInFlight guard inside playerUseAbility already keeps
-    // this safe if Space is pressed while another ability's resolution is
-    // still in flight: that call just no-ops.
+    // abilityActionInFlight guard inside playerUseAbility still no-ops a
+    // Space press reaching here while another ability's own synchronous
+    // resolution is still in flight (e.g. a non-aoe ability's brief
+    // extra-target stagger) - it deliberately does NOT cover Faultline's
+    // staggered sweep any more, since that guard is released before the
+    // sweep's own loop starts (see playerUseAbility's `ability.aoe` branch)
+    // precisely so Space/other actions work during it.
     event.preventDefault();
     const superScream = ABILITIES.find((a) => a.id === 'superScream');
     const locked = state.player.level < superScream.unlockLevel;
@@ -1727,16 +1762,26 @@ async function playerUseAbility(abilityId) {
   // Lacerate's own prior press is still "in flight" (it isn't, by the time
   // the window is open, but this keeps the re-press from ever being blocked
   // by itself). This can also let a re-press slip in while a *different*
-  // ability's multi-await sequence (e.g. Faultline's staggered all-enemies
-  // sweep) is mid-flight and abilityActionInFlight is still true for it -
-  // handleLacerateRetriggerPress() only touches buffState/log/menu, never
-  // combatant hp/atb, so at worst that interleaves a log line; no state
-  // corruption results.
+  // ability's own brief synchronous resolution (e.g. a non-aoe ability's
+  // extra-target stagger) is mid-flight and abilityActionInFlight is still
+  // true for it - handleLacerateRetriggerPress() only touches
+  // buffState/log/menu, never combatant hp/atb, so at worst that interleaves
+  // a log line; no state corruption results. (Faultline's own staggered
+  // all-enemies sweep no longer holds abilityActionInFlight for this same
+  // reason - see its own release point in the `ability.aoe` branch below.)
   if (abilityId === 'slash' && lacerateRetriggerOpen) {
     handleLacerateRetriggerPress();
     return;
   }
   if (abilityActionInFlight) return;
+  // Faultline's own staggered sweep (the `ability.aoe` branch below) now
+  // releases abilityActionInFlight before its stagger loop runs, rather than
+  // holding it for the loop's whole ~1s+ duration - see that branch's own
+  // comment for why. That means the generic abilityActionInFlight check just
+  // above no longer blocks a *second* Faultline press while the first one's
+  // sweep is still staggering, so it needs its own dedicated re-entrancy
+  // guard here instead - see aoeSweepInFlight's own comment.
+  if (abilityId === 'sweep' && aoeSweepInFlight) return;
   abilityActionInFlight = true;
   // Fired once here rather than removed later: this button is about to be
   // torn down and rebuilt fresh by the next updateMenu() call (abilityButtonsHtml()
@@ -1764,43 +1809,68 @@ async function playerUseAbility(abilityId) {
     const buffActiveAtPress = buffState.active;
 
     if (ability.aoe) {
-      const targetIndices = monsterCombatants
-        .map((mc, i) => i)
-        .filter((i) => monsterCombatants[i].hp > 0);
-      const debuffSnapshots = targetIndices.map((i) => monsterCombatants[i].defenseDebuff);
-      ({ cooldowns: abilityCooldowns, totals: abilityCooldownTotals } = applyAbilityGcd(abilityCooldowns, getUnlockedAbilities(state.player.level), abilityId, gcdMs, abilityCooldownTotals));
-      attackStreak = 0;
-      attackStreakIdleMs = 0;
-      const livingIndices = targetIndices.filter((i) => monsterCombatants[i].hp > 0);
-      playPlayerSweepSwing(ability, livingIndices.map((i) => elements.monsterZones[i]));
-      for (let n = 0; n < targetIndices.length; n++) {
-        const monsterIndex = targetIndices[n];
-        await sleep(SWEEP_STAGGER_MS);
-        if (battleOver || unmounted) return;
-        const mc = monsterCombatants[monsterIndex];
-        if (mc.hp <= 0) continue;
-        const result = resolveAbilityUse(playerCombatant, applyDefenseDebuff(mc, debuffSnapshots[n]), ability, buffActiveAtPress, Math.random, consumeGuaranteedCritBonus());
-        mc.hp = result.monsterHp;
-        mc.atb = result.monsterAtb;
-        maybeMarkSplitDeath(mc, result);
-        mc.defenseDebuff = createDefenseDebuff(ability);
-        log.push(result.isCrit
-          ? `Critical! You use ${ability.name} on ${mc.name} for ${result.damage}!`
-          : `You use ${ability.name} on ${mc.name} for ${result.damage}.`);
-        playHitEffect(elements.monsterZones[monsterIndex], elements.monsterEmojis[monsterIndex], result.damage, result.isCrit, { impactSoundId: 'abilitySweepImpact' });
-        recordPlayerDamage(abilityId, result.damage, elements.monsterZones[monsterIndex]);
-        applyOnHitEffects(mc, result.damage);
-        updateHpBars();
-        updateAtbBars();
-        updateLog();
+      // See aoeSweepInFlight's own comment (top of file) for why this needs
+      // its own dedicated flag now that abilityActionInFlight is released
+      // early, below - always cleared in the finally, however this branch
+      // exits (normal completion, an early return from the loop, or a thrown
+      // error).
+      aoeSweepInFlight = true;
+      try {
+        const targetIndices = monsterCombatants
+          .map((mc, i) => i)
+          .filter((i) => monsterCombatants[i].hp > 0);
+        const debuffSnapshots = targetIndices.map((i) => monsterCombatants[i].defenseDebuff);
+        ({ cooldowns: abilityCooldowns, totals: abilityCooldownTotals } = applyAbilityGcd(abilityCooldowns, getUnlockedAbilities(state.player.level), abilityId, gcdMs, abilityCooldownTotals));
+        attackStreak = 0;
+        attackStreakIdleMs = 0;
+        const livingIndices = targetIndices.filter((i) => monsterCombatants[i].hp > 0);
+        playPlayerSweepSwing(ability, livingIndices.map((i) => elements.monsterZones[i]));
+        // Released here rather than left held through the loop below (the old
+        // behavior, via the `finally` at the bottom of this function): every
+        // combatant-state mutation Faultline's own press performs synchronously
+        // (GCD/cooldowns, streak reset) is already done by this point - the
+        // loop below only ever reads/writes state fresh at its own iteration
+        // (see its own comment), never anything captured before this line, so
+        // there's nothing left mid-flight for a concurrent Attack/other
+        // ability/Flee to corrupt. Reported behavior this fixes: Faultline's
+        // staggered per-enemy sweep (SWEEP_STAGGER_MS apart) used to hold this
+        // guard for its entire ~1s+ duration against a full enemy row, locking
+        // out Attack/other abilities/Flee for that whole window - see
+        // playerAttack/playerFlee's own comments on this same guard.
+        // Re-pressing Faultline itself during this same window is still
+        // guarded, just by aoeSweepInFlight above instead.
+        abilityActionInFlight = false;
+        for (let n = 0; n < targetIndices.length; n++) {
+          const monsterIndex = targetIndices[n];
+          await sleep(SWEEP_STAGGER_MS);
+          if (battleOver || unmounted) return;
+          const mc = monsterCombatants[monsterIndex];
+          if (mc.hp <= 0) continue;
+          const result = resolveAbilityUse(playerCombatant, applyDefenseDebuff(mc, debuffSnapshots[n]), ability, buffActiveAtPress, Math.random, consumeGuaranteedCritBonus());
+          mc.hp = result.monsterHp;
+          mc.atb = result.monsterAtb;
+          maybeMarkSplitDeath(mc, result);
+          mc.defenseDebuff = createDefenseDebuff(ability);
+          log.push(result.isCrit
+            ? `Critical! You use ${ability.name} on ${mc.name} for ${result.damage}!`
+            : `You use ${ability.name} on ${mc.name} for ${result.damage}.`);
+          playHitEffect(elements.monsterZones[monsterIndex], elements.monsterEmojis[monsterIndex], result.damage, result.isCrit, { impactSoundId: 'abilitySweepImpact' });
+          recordPlayerDamage(abilityId, result.damage, elements.monsterZones[monsterIndex]);
+          applyOnHitEffects(mc, result.damage);
+          updateHpBars();
+          updateAtbBars();
+          updateLog();
+        }
+        if (ability.widenBonusTargets) {
+          widenBuffState = { active: true, remainingMs: ability.defenseShredDurationMs };
+          updateWidenIndicator();
+        }
+        checkOutcome();
+        updateMenu();
+        return;
+      } finally {
+        aoeSweepInFlight = false;
       }
-      if (ability.widenBonusTargets) {
-        widenBuffState = { active: true, remainingMs: ability.defenseShredDurationMs };
-        updateWidenIndicator();
-      }
-      checkOutcome();
-      updateMenu();
-      return;
     }
 
     const targetIndex = selectedMonsterIndex;
@@ -1910,6 +1980,16 @@ function monsterAttack(monster, special = null) {
   }
   monster.atb = result.monsterAtb;
   monster.hp = result.monsterHp;
+  // Retribution Charm thorns - same reasoning as the parry-counter reflect
+  // in resolveMonsterWindup and the elemental proc in applyOnHitEffects:
+  // this is hp coming off a monster because of the player's own build, not
+  // a swing the player threw, so it's a raw addition to the DPS total
+  // rather than a recordPlayerDamage() call (which would compete for/pop a
+  // "New Max!" badge under some moveKey this damage doesn't actually belong
+  // to). Applying the same "counts if it reduces monster hp because of the
+  // player" rule to every such source, not just the parry one, keeps the
+  // total internally consistent.
+  battleDamageDealt += result.reflectedDamage;
   const monsterIndex = monsterCombatants.indexOf(monster);
   playMonsterAttackWindup(monster, monsterIndex);
   // Impact resolves immediately for every attack style, purely cosmetic
@@ -1974,6 +2054,13 @@ function resolveMonsterWindup(monster, parried, { requireZone = true, playHeroEf
     const result = resolveParrySuccess(monster, damage);
     monster.hp = result.monsterHp;
     monster.atb = result.monsterAtb;
+    // Counts toward the DPS total like any other hit the player caused -
+    // routed as a raw addition rather than through recordPlayerDamage()
+    // (used at every other damage site) so a landed parry doesn't also
+    // compete for/pop its own "New Max!" badge under the 'attack'/ability
+    // moveKeys, which would misattribute a reflex-timed counter-hit as a
+    // new personal best for a swing the player didn't actually throw.
+    battleDamageDealt += result.reflectedDamage;
     log.push(special
       ? `You parry ${monster.name}'s strange attack and negate it, striking back for ${result.reflectedDamage}!`
       : `You parry ${monster.name}'s attack and strike back for ${result.reflectedDamage}!`);
@@ -2101,7 +2188,7 @@ function tick() {
   // tick exactly at windowMs.
   if (lacerateRetriggerOpen) {
     const lacerate = ABILITIES.find((a) => a.id === 'slash');
-    if (performance.now() - lacerateRetriggerStartedAt >= lacerate.retrigger.windowMs) {
+    if (Date.now() - lacerateRetriggerStartedAt >= lacerate.retrigger.windowMs) {
       closeLacerateRetriggerWindow();
     }
   }
@@ -2233,6 +2320,15 @@ function endBattle(outcome) {
     playReviveEffect(elements.heroEmoji);
   }
   const killedMonsterIds = monsterCombatants.filter((mc) => mc.hp <= 0).map((mc) => mc.monsterId);
+  // Snapshotted now, same reasoning as killedMonsterIds just above: this
+  // fires from a setTimeout below, and unmountOverlay() (main.js's
+  // handleBattleEnd, the callback's only real caller) tears the screen down
+  // as its very first line - if that happened to reset battleDamageDealt
+  // before this timeout read it, the reported total would be wrong. Nothing
+  // here resets it early today (only mount() does), but capturing it at the
+  // moment the battle actually ends, rather than relying on that, doesn't
+  // depend on that staying true.
+  const totalDamageDealt = battleDamageDealt;
   updateMenu();
   // The hit that just ended the battle (the killing blow, or the monster
   // attack that downed the player) plays its own effects independently of
@@ -2250,7 +2346,7 @@ function endBattle(outcome) {
     elements.stack?.classList.add('battle-screen-swirl-out');
   }, exitAnimDelayMs);
   endBattleTimeoutId = setTimeout(() => {
-    callbacks.onBattleEnd(outcome, killedMonsterIds);
+    callbacks.onBattleEnd(outcome, killedMonsterIds, totalDamageDealt);
   }, exitAnimDelayMs + EXIT_ANIM_MS);
 }
 

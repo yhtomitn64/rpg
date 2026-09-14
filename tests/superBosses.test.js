@@ -5,6 +5,10 @@ import { TILES } from '../js/tiles.js';
 import { MONSTERS } from '../js/data/monsters.js';
 import { ITEMS } from '../js/data/items.js';
 import { superBossOneDungeonMap } from '../js/maps/superBosses/superBossOneDungeon.js';
+import { superBossTwoMap } from '../js/maps/superBosses/superBossTwo.js';
+import { superBossThreeMap } from '../js/maps/superBosses/superBossThree.js';
+import { superBossFourMap } from '../js/maps/superBosses/superBossFour.js';
+import { superBossFiveMap } from '../js/maps/superBosses/superBossFive.js';
 import { isWalkableAt } from '../js/systems/world.js';
 import { pickVariantOverrides } from '../js/systems/monsterVariants.js';
 
@@ -64,7 +68,13 @@ function assertFullyReachable(map) {
 // the same way tests/toolDungeonMaps.test.js keys TOOL_DUNGEONS - generic
 // over however many superbosses eventually get their own dungeon, not
 // hardcoded to just this one.
-const SUPER_BOSS_DUNGEONS = { superBossOne: superBossOneDungeonMap };
+const SUPER_BOSS_DUNGEONS = {
+  superBossOne: superBossOneDungeonMap,
+  superBossTwo: superBossTwoMap,
+  superBossThree: superBossThreeMap,
+  superBossFour: superBossFourMap,
+  superBossFive: superBossFiveMap,
+};
 
 test('every SUPER_BOSSES entry has the required shape', () => {
   for (const [id, entry] of Object.entries(SUPER_BOSSES)) {
@@ -76,6 +86,14 @@ test('every SUPER_BOSSES entry has the required shape', () => {
     } else {
       assert.equal(entry.dungeonMapId, null, `${id} has hasDungeon: false but a non-null dungeonMapId`);
     }
+    if ('debutNgPlusCycle' in entry) {
+      assert.equal(typeof entry.debutNgPlusCycle, 'number', `${id}'s debutNgPlusCycle must be a number if present`);
+      assert.ok(entry.debutNgPlusCycle >= 0, `${id}'s debutNgPlusCycle must be non-negative`);
+      assert.ok(Number.isInteger(entry.debutNgPlusCycle), `${id}'s debutNgPlusCycle must be an integer`);
+    }
+    const nullPlacementFields = [entry.screenId, entry.x, entry.y].filter((v) => v === null).length;
+    assert.ok(nullPlacementFields === 0 || nullPlacementFields === 3,
+      `${id}'s screenId/x/y must be either all null (unplaced) or all non-null (placed), never a mix - got screenId=${entry.screenId} x=${entry.x} y=${entry.y}`);
   }
 });
 
@@ -221,7 +239,7 @@ test("superBossOne's effective combat stats never vary across many simulated enc
   }
 });
 
-test('every hasDungeon SUPER_BOSSES entry has a well-formed, fully-reachable dungeon map with a walkable start, exactly one exit and one guardian tile, and a guardian matching its own monster', () => {
+test('every hasDungeon SUPER_BOSSES entry has a well-formed, fully-reachable dungeon map with a walkable start, at least one exit tile, exactly one guardian tile, and a guardian matching its own monster', () => {
   for (const [superBossId, entry] of Object.entries(SUPER_BOSSES)) {
     if (!entry.hasDungeon) continue;
     const map = SUPER_BOSS_DUNGEONS[superBossId];
@@ -233,7 +251,13 @@ test('every hasDungeon SUPER_BOSSES entry has a well-formed, fully-reachable dun
 
     const chars = map.rows.join('');
     const tileKeys = [...chars].map((c) => map.legend[c]);
-    assert.equal(tileKeys.filter((k) => k === 'exit').length, 1, `${map.id} must have exactly one exit tile`);
+    // Multiple exit tiles are allowed (raised 2026-09-13, terrain-painter's
+    // own saveNewDungeonBtn now permits it) - js/main.js's exitMap handler
+    // returns the player to this dungeon's own wilderness entrance
+    // regardless of which exit tile they're standing on, so any count works
+    // in the real game. Only the chosen startPosition (below) needs to
+    // actually be tagged 'exit'.
+    assert.ok(tileKeys.filter((k) => k === 'exit').length >= 1, `${map.id} must have at least one exit tile`);
     assert.equal(tileKeys.filter((k) => k === 'guardian').length, 1, `${map.id} must have exactly one guardian tile`);
 
     const { x, y } = map.startPosition;

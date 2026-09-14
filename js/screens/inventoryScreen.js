@@ -1,16 +1,35 @@
 import { ITEMS } from '../data/items.js';
 import {
   getItemStatDelta, equipItem, unequipItem, removeItem, applyHeal, getEquipmentBonuses,
-  describeItem, getUpgradeLevel, resolveDualEquipSlot, formatStatDelta,
+  describeItem, getUpgradeLevel, resolveDualEquipSlot, formatStatDelta, physicalKeysFor,
 } from '../systems/inventory.js';
 import { tierLabel } from '../systems/itemQuality.js';
 import { LOADOUT_SIZE, setLoadoutSlot, clearLoadoutSlot } from '../systems/loadout.js';
 import { logEvent } from '../systems/telemetry.js';
 import { bindEscapeClose, bindBackdropClose } from './dialogChrome.js';
 
-const SLOTS = ['weapon', 'head', 'body', 'legs', 'accessory1', 'accessory2', 'ring1', 'ring2'];
-const SLOT_LABELS = { accessory1: 'Charm 1', accessory2: 'Charm 2', ring1: 'Ring 1', ring2: 'Ring 2' };
-const DUAL_SLOT_PHYSICAL_KEYS = { ring: ['ring1', 'ring2'], accessory: ['accessory1', 'accessory2'] };
+const FIXED_SLOTS = ['weapon', 'head', 'body', 'legs'];
+
+// "Ring N" / "Charm N" labels are generated from the physical key itself
+// (ring3 -> "Ring 3") instead of a lookup table, so they scale with however
+// many slots the current NG+ cycle has unlocked (see ringSlotCount/
+// accessorySlotCount in inventory.js) rather than only covering the
+// original fixed pair.
+function slotLabel(slot) {
+  const match = /^(ring|accessory)(\d+)$/.exec(slot);
+  if (!match) return slot;
+  return `${match[1] === 'ring' ? 'Ring' : 'Charm'} ${match[2]}`;
+}
+
+// The full equipment status list this screen shows: the 4 fixed slots plus
+// however many charm/ring slots the current NG+ cycle grants.
+function equipmentSlots(currentState) {
+  return [
+    ...FIXED_SLOTS,
+    ...physicalKeysFor('accessory', currentState.ngPlusCycle),
+    ...physicalKeysFor('ring', currentState.ngPlusCycle),
+  ];
+}
 
 // Raised 2026-08-29: "our inventory screen should have tabs for the
 // different stuff instead of endless list and maybe some sorting" - split
@@ -53,9 +72,9 @@ function sortEntries(entries, sortOrder) {
 }
 
 function renderEquippedRows() {
-  return SLOTS.map((slot) => {
+  return equipmentSlots(state).map((slot) => {
     const itemId = state.equipment[slot];
-    const label = SLOT_LABELS[slot] || slot;
+    const label = slotLabel(slot);
     if (!itemId) return `<div class="inventory-row">${label}: (empty)</div>`;
     const item = ITEMS[itemId];
     const tier = state.equipmentTiers?.[slot];
@@ -68,7 +87,7 @@ function renderEquippedRows() {
 }
 
 function equipButtonsFor(entry, item) {
-  const dualPair = DUAL_SLOT_PHYSICAL_KEYS[item.slot];
+  const dualPair = physicalKeysFor(item.slot, state.ngPlusCycle);
   if (!dualPair) {
     return `<button data-equip="${entry.itemId}" data-tier="${entry.tier || ''}" data-slot="${item.slot}">Equip</button>`;
   }
@@ -77,7 +96,7 @@ function equipButtonsFor(entry, item) {
     return `<button data-equip="${entry.itemId}" data-tier="${entry.tier || ''}" data-slot="${resolvedSlot}">Equip</button>`;
   }
   return dualPair
-    .map((slot) => `<button data-equip="${entry.itemId}" data-tier="${entry.tier || ''}" data-slot="${slot}">→ ${SLOT_LABELS[slot]}</button>`)
+    .map((slot) => `<button data-equip="${entry.itemId}" data-tier="${entry.tier || ''}" data-slot="${slot}">→ ${slotLabel(slot)}</button>`)
     .join('\n    ');
 }
 

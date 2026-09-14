@@ -304,4 +304,145 @@ export const MONSTERS = {
     ],
     attackStyle: 'melee',
   },
+  // Debuts at NG+1 (see SUPER_BOSSES.superBossTwo's debutNgPlusCycle).
+  // FIRST-PASS STATS, not final - validate/retune with:
+  //   node scripts/simulate-balance.js --cycle-sweep superBossTwo
+  // before Timothy places this for real. Base numbers below produce, once
+  // getNgPlusCombatOverrides scales them at NG+1 (hp x2, atk/def x1.25):
+  // effective hp 2200 / atk 75 / def 26 - meaningfully less HP and more
+  // attack than superBossOne's own NG+1-scaled 6000/69/30, per this pass's
+  // "shorter, harder-hitting" design goal.
+  superBossTwo: {
+    id: 'superBossTwo', name: 'Super Boss Two [PLACEHOLDER NAME]', emoji: '👹',
+    hp: 1100, attack: 60, defense: 21, speed: 14,
+    xp: 650, goldRange: [180, 260],
+    dropTable: [{ itemId: 'parryMasterRing', chance: 1, tier: 'apex' }],
+    isSuperBoss: true,
+    forceFullBattle: true,
+    specialAttacks: [
+      { type: 'stun', chancePerTurn: 0.25, durationMs: 1200 },
+      { type: 'slow', chancePerTurn: 0.25, slowPercent: 25, durationMs: 4000 },
+      { type: 'cooldownOverload', chancePerTurn: 0.2, gcdMs: 6000 },
+    ],
+    attackStyle: 'melee',
+  },
+  // Debuts at NG+2. Retuned ONCE (Task 9) from the plan's first-pass
+  // candidate (hp 800/atk 70/def 19) after
+  //   node scripts/simulate-balance.js --cycle-sweep superBossThree --trials 2000
+  // showed its own NG+2 debut-cycle ceiling row at 0% win rate (2000/2000
+  // losses) despite 4.19 of 6 potions used - a losing grind the maxed L18
+  // build couldn't close, not a burst-death, so both hp and attack came
+  // down together (same "hold nothing fixed, cut proportionally" move as
+  // superBossOne's own retune, just smaller): hp 800->640 (-20%), attack
+  // 70->60 (-14%), defense untouched. That's the only pass this boss
+  // needed - re-running afterward landed its NG+2 debut row at 33% win /
+  // 27% avg HP remaining on a win / 5.66 of 6 potions used at cycle-ceiling
+  // gear (a real win with heavy resource spend, not a walkover) and 0%
+  // win / 0 potions at cycle-start gear (see the Validation results
+  // section of docs/superpowers/specs/2026-09-13-superboss-expansion-design.md
+  // for why that cycle-start number isn't actually alarming). Base numbers
+  // now produce, at NG+2 (hp x4, atk/def x1.5625): effective hp 2560 /
+  // atk 94 / def 30 - still well under superBossOne's own NG+2-scaled
+  // 12000/86/38 (the exact fight Timothy beat at 100% HP doing "like 2
+  // damage"), deliberately far less HP, comparable attack.
+  superBossThree: {
+    id: 'superBossThree', name: 'Super Boss Three [PLACEHOLDER NAME]', emoji: '🧟',
+    hp: 640, attack: 60, defense: 19, speed: 15,
+    xp: 850, goldRange: [220, 320],
+    dropTable: [{ itemId: 'unshakenCharm', chance: 1, tier: 'apex' }],
+    isSuperBoss: true,
+    forceFullBattle: true,
+    specialAttacks: [
+      { type: 'stun', chancePerTurn: 0.3, durationMs: 1300 },
+      { type: 'slow', chancePerTurn: 0.25, slowPercent: 30, durationMs: 4000 },
+      { type: 'cooldownOverload', chancePerTurn: 0.2, gcdMs: 6500 },
+    ],
+    attackStyle: 'ranged', projectileEmoji: '🦴',
+  },
+  // Debuts at NG+3. Retuned TWICE (Task 9) from the plan's first-pass
+  // candidate (hp 563/atk 77/def 17) - see task-9-report.md for both full
+  // sweep passes:
+  //   1st pass: its own NG+3 debut-cycle ceiling row started at a 0.20%
+  //   win rate with only 0.87 of 6 potions used - a near-instant burst
+  //   death (dying before the sim's potion-threshold check even fires),
+  //   the same "unparried-hit budget too small" failure superBossOne's
+  //   own reverted 1st pass hit. Fix: attack down, hp untouched -
+  //   77->58 (-25%). Re-running showed potions jump to 5.52/6 (the
+  //   burst-death symptom was gone) but win rate barely moved (0.50%) -
+  //   now a losing grind instead of an instant kill.
+  //   2nd pass (this one): hp down too, attack held at 58 - 563->480
+  //   (-15%), since the grind-not-burst shape pointed at hp as the
+  //   remaining lever. Converged to hp: 480, attack: 58 - its own NG+3
+  //   debut-cycle ceiling row lands 7.7% win rate / 21% avg HP remaining
+  //   on a win / 5.46 of 6 potions used (2000 trials) - a real, if
+  //   still narrow, win with heavy resource spend. Below the pass cap's
+  //   comfort zone but not the 0%/100% failure mode the brief flags, and
+  //   two passes is this task's own limit - left for Timothy's real
+  //   playtesting rather than a 3rd guess (see the Validation results
+  //   section of docs/superpowers/specs/2026-09-13-superboss-expansion-design.md).
+  // Base numbers now produce, at NG+3 (hp x8, atk/def x1.953125):
+  // effective hp 3840 / atk 113 / def 33.
+  superBossFour: {
+    id: 'superBossFour', name: 'Super Boss Four [PLACEHOLDER NAME]', emoji: '👺',
+    hp: 480, attack: 58, defense: 17, speed: 15,
+    xp: 1100, goldRange: [280, 400],
+    dropTable: [{ itemId: 'stormringOfHaste', chance: 1, tier: 'apex' }],
+    isSuperBoss: true,
+    forceFullBattle: true,
+    specialAttacks: [
+      { type: 'stun', chancePerTurn: 0.3, durationMs: 1400 },
+      { type: 'slow', chancePerTurn: 0.3, slowPercent: 30, durationMs: 4500 },
+      { type: 'cooldownOverload', chancePerTurn: 0.25, gcdMs: 6500 },
+    ],
+    attackStyle: 'melee',
+  },
+  // Debuts at NG+4, the hardest of this pass's four AT ITS OWN DEBUT
+  // CYCLE. At any single fixed NG+ cycle it's actually the WEAKEST of
+  // all five superbosses (One through Five) on both base hp (406, lowest)
+  // and base attack (48, lowest) - a direct consequence of the two attack
+  // cuts made during retuning below. It only reads as "hardest" because
+  // NG+'s exponential scaling (hp x2^cycle, atk/def x1.25^cycle) compounds
+  // more times before a player ever meets it than for the earlier-debuting
+  // bosses. A future author extending this roster shouldn't assume its raw
+  // stat numbers reflect difficulty in isolation from its debut-cycle
+  // context. Retuned TWICE
+  // (Task 9) from the plan's first-pass candidate (hp 406/atk 82/def 16)
+  // - see task-9-report.md for both full sweep passes:
+  //   1st pass: its own NG+4 debut-cycle ceiling row started at a 0.30%
+  //   win rate. Attack down, hp untouched - 82->59 (-28%). Re-running
+  //   left win rate essentially unchanged (0.00% at 2000 trials) with
+  //   potions at 3.02/6 (a mix of early and drawn-out losses, not a
+  //   clean burst-death signature) - meanwhile every earlier, non-debut
+  //   cycle jumped toward 100% win, a direct consequence of this boss's
+  //   own atk/def NG+ multiplier (x2.44 at cycle 4 vs x1 at cycle 0)
+  //   compounding fastest of all four new bosses.
+  //   2nd pass (this one): attack down again, hp still untouched -
+  //   59->48 (-19% more, -41% cumulative from the original 82). Its own
+  //   NG+4 debut-cycle ceiling row still lands at 0.50% win rate / 9%
+  //   avg HP remaining on a win / 5.96 of 6 potions used (2000 trials) -
+  //   essentially unwinnable even at maxed ceiling gear, the 0%-ish
+  //   failure mode the brief calls out, and two passes is this task's
+  //   own cap. NOT fixed - flagged as-is rather than continuing to
+  //   guess; needs a real look (possibly hp down instead of/along with
+  //   attack, now that lower cycles are already trivial at this attack
+  //   level) once Timothy has actually placed and fought it, same as
+  //   every prior superboss retune in this project's history (see the
+  //   Validation results section of
+  //   docs/superpowers/specs/2026-09-13-superboss-expansion-design.md).
+  // Base numbers now produce, at NG+4 (hp x16, atk/def x2.44140625):
+  // effective hp 6496 / atk 117 / def 39.
+  superBossFive: {
+    id: 'superBossFive', name: 'Super Boss Five [PLACEHOLDER NAME]', emoji: '🐲',
+    hp: 406, attack: 48, defense: 16, speed: 16,
+    xp: 1400, goldRange: [350, 500],
+    dropTable: [{ itemId: 'guardiansLastStand', chance: 1, tier: 'apex' }],
+    isSuperBoss: true,
+    forceFullBattle: true,
+    specialAttacks: [
+      { type: 'stun', chancePerTurn: 0.3, durationMs: 1500 },
+      { type: 'slow', chancePerTurn: 0.3, slowPercent: 35, durationMs: 5000 },
+      { type: 'cooldownOverload', chancePerTurn: 0.25, gcdMs: 7000 },
+    ],
+    attackStyle: 'ranged', projectileEmoji: '❄️',
+  },
 };

@@ -84,12 +84,17 @@ server):**
    do since there's no existing file to patch.
 4. Run `npm test`, commit.
 
-This doesn't cover the currently-selected dragon-dungeon/mini-dungeon
-interior map (if you're painting one — a brand-new dungeon is covered by
-step 3 above) — those are still single files, one at a time: pick the
-map, click **"Copy LEGEND/ROWS"**, and paste it over the existing `const
-LEGEND = {...}; const ROWS = [...]` declaration in that map's file under
-`js/maps/`.
+"Export All Changed to Files" only covers wilderness screens — a
+currently-selected dragon/tool/mini/superboss dungeon interior is a
+separate file, saved one at a time. With the Node server running, the
+same export button (labeled **"Save to Server"** whenever you're on one
+of these existing files) writes straight to disk via
+`/api/patch-single-map`, same one-click save as everything else. Without
+the server (or on a brand-new "New Dungeon" that has no file yet — see
+step 3 above, which covers that case separately), it falls back to
+copying `LEGEND`/`ROWS` to the clipboard for you to paste over the
+existing `const LEGEND = {...}; const ROWS = [...]` declaration in that
+map's file under `js/maps/` by hand.
 
 **Fallback flow (Chrome/Edge, no Node server running):** click **"Choose
 Repo Folder"** once per browser session and pick the repo's root folder
@@ -144,8 +149,19 @@ every map, wilderness included.
   every tool. Also reports plainly whether the main dungeon entrance itself
   is reachable *without* a tool (it has to be — axe/pick/boat only ever
   drop from inside a dungeon, so the entrance can't require one to get to).
-  Dungeon-interior maps don't have their own reachability check yet — only
-  the wilderness does.
+  Dungeon-interior maps (any single map, not just wilderness) get their own
+  simpler **Check Map** button too — no tool-gating inside a dungeon
+  interior, so it's just one flood-fill from the door/entrance tile
+  (`exit`/`miniDungeonEntrance`, whichever the loaded map's palette uses),
+  and every walkable tile in the map must be reachable from it. The check
+  animates as it runs (teal tiles spreading outward from the door, one BFS
+  layer at a time) — the **Speed** slider next to the button controls how
+  many tiles it reveals per frame, from "watch it crawl" to "basically
+  instant." Once it finishes, magenta tiles mark anything walkable but
+  unreachable. This is the shape of bug that shipped in `superBossFive`'s
+  dungeon — not just a stray tile, as it turned out: running this check
+  against it found 558 of 650 walkable tiles unreachable from the door,
+  including the guardian tile itself.
 - **Sealed world edge** — the outermost border of the full 5x5 world (any
   screen edge with no neighboring screen) always renders as the permanent
   mountain wall and can't be painted over, matching what the real game
@@ -170,7 +186,8 @@ every map, wilderness included.
   then writes the map file to `js/maps/superBosses/` and registers its
   import + `MAPS` entry in `js/main.js`. Needs the Node server — there's
   no existing file for a File System Access fallback to patch.
-- **Export / Copy LEGEND/ROWS** — see the saving workflow above.
+- **Export / Save to Server** — see the saving workflow above; the button's
+  own label says which one it'll do.
 
 ## Keyboard shortcuts
 
@@ -184,11 +201,10 @@ in the painter (they're the in-game movement keys, not painter controls).
 - **Scroll doesn't lock while painting.** If your click-drag stroke nears
   the edge of the browser window, the page can scroll out from under you
   mid-stroke. Backlogged, not fixed.
-- Bulk export (the Node server path or its Chrome/Edge fallback) still
-  doesn't cover the currently-open dragon-dungeon/mini-dungeon interior
-  map — that still needs its own "Copy LEGEND/ROWS" + paste. (A brand-new
-  dungeon *is* covered, via "Save New Dungeon to Server".)
-- No reachability check for dungeon-interior maps (wilderness only).
+- "Export All Changed to Files" (bulk export) still only covers wilderness
+  screens — an existing dragon/tool/mini/superboss dungeon saves through
+  "Save to Server" instead (one file, one click, see the saving workflow
+  above), and a brand-new dungeon through "Save New Dungeon to Server".
 - The dungeon entrance and tool dungeon entrance positions aren't wired to
   the Node server's endpoints (only wilderness screens and superboss
   markers are) — moving either still needs the Chrome/Edge "Choose Repo

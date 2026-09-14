@@ -1,11 +1,28 @@
 import { ITEMS } from '../data/items.js';
 import { xpForLevel } from '../systems/leveling.js';
-import { getEquipmentBonuses } from '../systems/inventory.js';
+import { getEquipmentBonuses, physicalKeysFor } from '../systems/inventory.js';
 import { tierLabel } from '../systems/itemQuality.js';
 import { bindEscapeClose, bindBackdropClose } from './dialogChrome.js';
 
-const SLOTS = ['weapon', 'head', 'body', 'legs', 'accessory1', 'accessory2', 'ring1', 'ring2'];
-const SLOT_LABELS = { accessory1: 'Charm 1', accessory2: 'Charm 2', ring1: 'Ring 1', ring2: 'Ring 2' };
+const FIXED_SLOTS = ['weapon', 'head', 'body', 'legs'];
+
+// "Ring N" / "Charm N" labels generated from the physical key itself, so
+// they scale with however many slots the current NG+ cycle has unlocked
+// (see ringSlotCount/accessorySlotCount in inventory.js) instead of only
+// covering the original fixed pair.
+function slotLabel(slot) {
+  const match = /^(ring|accessory)(\d+)$/.exec(slot);
+  if (!match) return slot;
+  return `${match[1] === 'ring' ? 'Ring' : 'Charm'} ${match[2]}`;
+}
+
+function equipmentSlots(currentState) {
+  return [
+    ...FIXED_SLOTS,
+    ...physicalKeysFor('accessory', currentState.ngPlusCycle),
+    ...physicalKeysFor('ring', currentState.ngPlusCycle),
+  ];
+}
 
 let rootEl = null;
 let state = null;
@@ -17,9 +34,9 @@ function render() {
   const bonuses = getEquipmentBonuses(state);
   const xpNeeded = xpForLevel(state.player.level);
 
-  const equipRows = SLOTS.map((slot) => {
+  const equipRows = equipmentSlots(state).map((slot) => {
     const itemId = state.equipment[slot];
-    const label = SLOT_LABELS[slot] || slot;
+    const label = slotLabel(slot);
     if (!itemId) return `<div class="stats-slot">${label}: (empty)</div>`;
     const item = ITEMS[itemId];
     const level = state.upgrades?.[itemId] || 0;

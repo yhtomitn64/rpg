@@ -56,7 +56,6 @@ async function mountPlains() {
   const state = { ...createNewGame(), map: 'plains', position: { x: 10, y: 5 } };
   const moves = [];
   mount(root, {
-    renderer: 'dom',
     walkRepeatMs: INTERVAL_MS,
     state,
     mapConfig: PLAINS,
@@ -67,6 +66,7 @@ async function mountPlains() {
       onMove: (position) => moves.push({ ...position }),
       onAction: () => {},
       onEncounter: () => {},
+      onWornPathHint: () => {},
       onCacheFound: () => {},
       onEnterMiniDungeon: () => {},
       onLockedGate: () => {},

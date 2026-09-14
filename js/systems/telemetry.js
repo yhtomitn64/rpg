@@ -117,6 +117,16 @@ export function getBufferAsJsonl() {
   return sessionBuffer.map((event) => JSON.stringify(event)).join('\n');
 }
 
+// Same underlying buffer as getBufferAsJsonl (durable across page loads via
+// loadPersisted, capped at MAX_BUFFERED_EVENTS), just handed back as real
+// objects instead of a JSONL string to re-parse - added for the DPS chart
+// screen, which wants to filter/map battle_end events directly rather than
+// round-trip them through JSON.stringify/parse. A copy, not the live array,
+// so a caller can't mutate sessionBuffer by holding onto the reference.
+export function getBufferedEvents() {
+  return sessionBuffer.slice();
+}
+
 export function isServerAvailable() {
   return serverAvailable;
 }

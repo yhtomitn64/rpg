@@ -6,7 +6,7 @@
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
   {
-    version: '0.33.0',
+    version: '0.37.0',
     date: '2026-09-13',
     highlights: [
       'Added: your basic Attack now has its own punch sound instead of sharing the same thud as everything else, and Impale and Lacerate got new swing sounds too.',
@@ -14,6 +14,213 @@ export const PLAYER_CHANGELOG = [
       'Note: still behind "Audio (beta)" in Settings - turn it on to hear any of this.',
       'Fixed: holding a direction key during a battle no longer machine-guns a click sound (or, worse, chain-drinks your potions) - only the actual key press counts now.',
       'Fixed: a debug testing URL was resetting the Audio (beta) toggle back off every time it reloaded - shouldn\'t affect normal saves, but if you noticed audio "turning itself off," this was why.',
+    ],
+  },
+  {
+    version: '0.36.0',
+    date: '2026-09-13',
+    highlights: [
+      "New: ring and charm slots now keep growing with New Game Plus - two more ring slots and one more charm slot every cycle, no limit. Fair warning: this is deliberately unbalanced.",
+      "New: a \"DPS Chart\" button in Settings shows how your damage-per-second on regular fights vs. bosses has trended over time, so you can actually see yourself getting stronger through NG+.",
+      "Fixed: Faultline no longer locks you out of Attack, Flee, or other abilities while its sweep is still playing out.",
+      "Fixed: the terrain painter (map editor) now allows a dungeon to have more than one exit - no gameplay change for you, just makes new dungeons easier to build.",
+    ],
+  },
+  // Internal-only, same reason 0.34.7/0.34.8 and 0.35.0-0.35.1 got entries
+  // (see this file's header): both changes this version are terrain-
+  // painter (map-editor) tooling used only during development - an
+  // animated wilderness Check Map and a save-flow fix - neither touches
+  // gameplay code or anything a player encounters in-game.
+  {
+    version: '0.35.4',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some map-editor tooling used during development - nothing to notice in-game.",
+    ],
+  },
+  // The real player-facing entry the 0.35.2 comment below promised: the
+  // blocking reachability bug (superBossFive's dungeon) is fixed and
+  // verified (npm test, plus the terrain painter's own new Check Map) and
+  // this now reaches main. No made-up boss names here - MONSTERS still
+  // has them as "[PLACEHOLDER NAME]" in js/data/monsters.js, an unrelated
+  // and still-open content gap, not something to paper over in this entry.
+  {
+    version: '0.35.3',
+    date: '2026-09-13',
+    highlights: [
+      "New: four more superbosses now roam the world, each guarding its own hidden dungeon - on top of the one that was already out there.",
+    ],
+  },
+  // Internal-only, even though the four new superbosses are now genuinely
+  // placed in the world (screenId/x/y set, dungeons authored) - not
+  // announced yet because superBossFive's dungeon has a known unreachable-
+  // tile bug (npm test catches it) and this hasn't merged to main. Once
+  // fixed and merged, a real player-facing entry belongs here describing
+  // the new superbosses - see the 0.35.0 entry below for a first draft of
+  // that tone, minus its own since-corrected reachability claim.
+  {
+    version: '0.35.2',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: more internal groundwork for the upcoming New Game+ superbosses - still nothing to notice in-game yet.",
+    ],
+  },
+  // Internal-only, same reason 0.34.7/0.34.8 got entries (see this file's
+  // header + those entries' own comments): a fix wave from the final
+  // whole-branch review of the superboss expansion branch - documentation
+  // wording, a test assertion, and code comments corrected (including the
+  // now-stale guard comment just below this entry, on the 0.35.0 entry),
+  // plus one dev-only script's unused import removed. No gameplay code
+  // changed and the four new superbosses are still unplaced (screenId/x/y
+  // still null), so there's nothing new for a player to find in-game.
+  {
+    version: '0.35.1',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some documentation and test cleanup from a final review pass - nothing to notice in-game.",
+    ],
+  },
+  // Written ahead of world placement: as of this commit the four bosses below
+  // are registered in js/data/superBosses.js with screenId/x/y still null (see
+  // CHANGELOG.md's 0.35.0 entry) - placing them in the world is Timothy's own
+  // next step before this branch reaches main. Reworded during the final
+  // whole-branch review (see the 0.35.1 entry above) to match this file's
+  // "groundwork shipped, nothing to notice yet" convention, so it's accurate
+  // to ship as-is even before placement - it no longer claims the bosses are
+  // reachable.
+  {
+    version: '0.35.0',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some behind-the-scenes groundwork for four upcoming superbosses - nothing to find in-game yet, since none of them have been placed in the world.",
+    ],
+  },
+  // Internal-only, same reason 0.34.1-0.34.4 got entries (see this file's
+  // header + those entries' own comments): superboss encounters now have the
+  // plumbing to be locked behind an NG+ cycle threshold (isSuperBossDebuted in
+  // js/systems/superBossGates.js, wired into main.js's tile-action handlers),
+  // but no superboss actually sets a debutNgPlusCycle yet - existing
+  // superBossOne debuts at cycle 0 same as always, so nothing changes for a
+  // player until Phase 2 gives the new bosses a real gated value.
+  {
+    version: '0.34.8',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some internal groundwork for a future superboss feature - nothing to notice in-game yet.",
+    ],
+  },
+  // Internal-only, same reason 0.34.1-0.34.4 got entries (see this file's
+  // header + those entries' own comments): a dev-only balance-tuning tool
+  // (scripts/simulate-balance.js, not shipped in the game itself) got two
+  // bugfixes and a new CLI mode, with no player-visible change.
+  {
+    version: '0.34.7',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: some internal balance-tuning tooling updates - nothing to notice in-game.",
+    ],
+  },
+  {
+    version: '0.34.6',
+    date: '2026-09-13',
+    highlights: [
+      "Fixed: an imported character's name no longer shows a level that stops updating - the name won't get stuck on the level you imported at anymore (your current level still shows right below it, as always).",
+    ],
+  },
+  {
+    version: '0.34.5',
+    date: '2026-09-12',
+    highlights: [
+      "Fixed: standing on a guardian or boss tile no longer makes your hero balloon up to giant size - your character now stays normal-sized there, same as everywhere else.",
+    ],
+  },
+  // Internal-only, same reason 0.34.1-0.34.3 got entries (see this file's
+  // header + those entries' own comments): a tiny internal clock-source
+  // change (Lacerate's retrigger window) with no player-visible timing
+  // difference, made only to finish the same test-suite cleanup.
+  {
+    version: '0.34.4',
+    date: '2026-09-12',
+    highlights: [
+      "Fixed: one more small internal timing cleanup - nothing to notice in-game, Lacerate's follow-through window still works exactly the same.",
+    ],
+  },
+  // Same shape as 0.34.1/0.34.2 just below - the small remainder of that
+  // same test suite cleanup.
+  {
+    version: '0.34.3',
+    date: '2026-09-12',
+    highlights: [
+      "Fixed: a couple more internal test cleanups, same as the last two updates - nothing to notice in-game.",
+    ],
+  },
+  // Internal-only fix, which normally wouldn't appear here at all (see this
+  // file's header). It gets an entry because tests/versionSync.test.js
+  // requires the newest dated CHANGELOG.md version to have a matching one,
+  // and CI separately requires any non-doc change to be bumped out of
+  // Unreleased - a test file counts as non-doc. Same shape as 0.32.1's own
+  // entry below, worded for the risk this closes rather than an update it
+  // unblocked (this one didn't block a deploy, it fixed a test that had
+  // already blocked two earlier ones and could have blocked a future one).
+  // Same shape as 0.34.1 just below - the other half of that same test
+  // suite's own real-timer conversion.
+  {
+    version: '0.34.2',
+    date: '2026-09-12',
+    highlights: [
+      "Fixed: more of the same internal test cleanup as the update just before this one - nothing to notice in-game, just keeps updates flowing reliably.",
+    ],
+  },
+  {
+    version: '0.34.1',
+    date: '2026-09-12',
+    highlights: [
+      "Fixed: an internal test that occasionally slowed down or risked blocking new updates from reaching you. Nothing to notice in-game - just keeps updates flowing reliably.",
+    ],
+  },
+  {
+    version: '0.34.0',
+    date: '2026-09-12',
+    highlights: [
+      "Added: well-worn paths are now safer - the more you've walked a tile, the lower the chance of a wild encounter there, up to 50% less on a fully worn path. There's a new Settings toggle if you'd rather every tile stay at full danger.",
+    ],
+  },
+  {
+    version: '0.33.3',
+    date: '2026-09-12',
+    highlights: [
+      'Fixed: the dragon boss entrance now sits on grass like every other landmark, and renders big like the tool guardians - it used to show small on a plain black square.',
+    ],
+  },
+  {
+    version: '0.33.2',
+    date: '2026-09-12',
+    highlights: [
+      'Fixed: the map could stay blurry after closing a dialog (a battle, inventory, settings, anything) if you had zoomed the browser while it was open. Zooming now gets picked up as soon as you close the dialog instead of waiting for your next step.',
+    ],
+  },
+  {
+    version: '0.33.1',
+    date: '2026-09-12',
+    highlights: [
+      'Changed: the four superboss reward items have real names now instead of "[PLACEHOLDER NAME]" - including Tooth Flooth, formerly Ferocity Fang.',
+      "Fixed: the portal no longer has a black square behind it - just the emoji.",
+      'Fixed: the battle screen\'s pause button no longer has a border around it.',
+    ],
+  },
+  {
+    version: '0.33.0',
+    date: '2026-09-10',
+    highlights: [
+      'Changed: the map is far faster to draw, especially once you have worn paths across a lot of ground. It used to redraw every path on screen every single frame; now it only redraws the couple of squares that actually changed as you walk. Big windows and heavily-travelled areas should stay smooth where they used to drop frames.',
+      'Fixed: tall trees no longer had their tops cut off, and shop and quest-board signs no longer disappeared, when you stood near them.',
+    ],
+  },
+  {
+    version: '0.32.5',
+    date: '2026-09-10',
+    highlights: [
+      "Changed: the game's name is now just \"RPG\" instead of \"Emoji RPG\" - no gameplay change, your save is untouched.",
     ],
   },
   {

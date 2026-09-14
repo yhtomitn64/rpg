@@ -38,7 +38,7 @@ async function mountMap(mapConfig, maps, state) {
     mapConfig,
     maps,
     worldGrid: buildWorldGrid(maps),
-    callbacks: { onFirstVisit: () => {}, onMove: () => {}, onAction: () => {} },
+    callbacks: { onFirstVisit: () => {}, onMove: () => {}, onAction: () => {}, onWornPathHint: () => {} },
   });
   return __getDrawListForTest();
 }
@@ -143,6 +143,25 @@ test('mapDrawList - landmarks and markers', async (t) => {
     assert.equal(glyph.sizePx, 2.2 * TILE_SIZE_PX);
   });
 
+  // Raised 2026-09-12 with a screenshot: the dragon boss entrance rendered
+  // at plain FULL_SQUARE_PX on a black GROUND_COLOR_DEFAULT square instead
+  // of grass - it was the one landmark tile missing from GRASS_CONTEXT_MARKERS
+  // and never got the "big and scary" GUARDIAN_PX treatment guardians did.
+  await t.test('the dragon boss entrance renders oversized on grass, not a black square', async () => {
+    const { dungeonMap } = await import('../js/maps/dungeonMap.js');
+    const maps = { dungeon: dungeonMap };
+    const drawList = await mountMap(dungeonMap, maps, baseState({
+      position: { ...dungeonMap.startPosition }, map: 'dungeon',
+    }));
+    const { x, y } = findTile(dungeonMap, 'boss');
+    const ground = opsAt(drawList, x, y).find((op) => op.op === 'ground');
+    assert.equal(ground.color, GROUND_COLOR_GRASS);
+    assert.notEqual(ground.color, GROUND_COLOR_DEFAULT);
+    const glyph = glyphsAt(drawList, x, y).at(-1);
+    assert.equal(glyph.sizePx, GUARDIAN_PX);
+    assert.notEqual(glyph.sizePx, FULL_SQUARE_PX);
+  });
+
   await t.test('a guardian tile still paints grass underneath, not the bare default', async () => {
     const { axeDungeonMap } = await import('../js/maps/toolDungeons/axeDungeon.js');
     const maps = { axeDungeon: axeDungeonMap };
@@ -196,14 +215,14 @@ test('mapDrawList - portals and the quest board glow', async (t) => {
     assert.equal(drawList.hasContinuousAnimation, true, 'a glowing board has to keep the render loop alive');
   });
 
-  await t.test('an origin portal emits a shadow op and a cropped glyph', async () => {
+  await t.test('an origin portal emits a cropped glyph and no background op', async () => {
     // (2,2) deliberately differs from the hero's own position - a tile the
     // player stands on draws the hero instead of the tile's own emoji.
     const drawList = await mountTown(baseState({
       portal: { originScreenId: 'town', originX: 2, originY: 2, returnPending: false },
     }));
     const ops = opsAt(drawList, 2, 2);
-    assert.ok(ops.some((op) => op.op === 'portalShadow'), 'expected the portal shadow op');
+    assert.equal(ops.some((op) => op.op === 'portalShadow'), false, 'the portal shadow was removed 2026-09-12 - emoji only, no background');
     const glyph = ops.find((op) => op.op === 'glyph');
     assert.equal(glyph.emoji, '🌌');
     assert.equal(glyph.cropped, true, 'the portal emoji is drawn oversized and clipped to crop its baked-in border');
@@ -211,7 +230,7 @@ test('mapDrawList - portals and the quest board glow', async (t) => {
 
   await t.test('no portal ops anywhere when state.portal is null', async () => {
     const drawList = await mountTown(baseState({ portal: null }));
-    assert.equal(drawList.ops.filter((op) => op.op === 'portalShadow').length, 0);
+    assert.equal(drawList.ops.some((op) => op.gx === 2 && op.gy === 2 && op.cropped), false);
   });
 
   // The DOM renderer expressed this as z-index row + 1000. The canvas
@@ -221,12 +240,12 @@ test('mapDrawList - portals and the quest board glow', async (t) => {
     const drawList = await mountTown(baseState({
       portal: { originScreenId: 'town', originX: 2, originY: 2, returnPending: false },
     }));
-    const shadowIndex = drawList.ops.findIndex((op) => op.op === 'portalShadow');
+    const glyphIndex = drawList.ops.findIndex((op) => op.op === 'glyph' && op.cropped);
     // The last op belonging to any non-boosted cell must come before it.
     const lastOrdinary = drawList.ops.reduce((acc, op, i) => (
       op.op !== 'ground' && !(op.gx === 2 && op.gy === 2) ? i : acc
     ), -1);
-    assert.ok(shadowIndex > lastOrdinary, 'portal ops must be emitted after all ordinary cell content');
+    assert.ok(glyphIndex > lastOrdinary, 'portal ops must be emitted after all ordinary cell content');
   });
 });
 

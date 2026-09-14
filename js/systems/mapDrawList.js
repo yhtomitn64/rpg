@@ -32,11 +32,9 @@ import {
   GROUND_COLOR_DEFAULT,
 } from './mapRenderModel.js';
 
-// CSS rem values from css/styles.css resolved to real pixels, since canvas
-// has no rem to resolve against. Each assumes the document's default 16px
-// root font size, exactly as every other rem in that stylesheet already
-// does. The DOM renderer keeps using the CSS; these are the canvas
-// renderer's translation of the same numbers.
+// CSS rem values, resolved to real pixels since canvas has no rem to resolve
+// against. Each assumes the document's default 16px root font size, exactly
+// as every other rem in the rest of css/styles.css does.
 const TILE_FONT_PX = 1.2 * 16;      // .map-tile's own font-size (the plain fallback branch)
 const MOUNT_FONT_PX = 1.2 * 16;     // .map-tile-mount
 const RIDER_FONT_PX = 0.85 * 16;    // .map-tile-rider
@@ -74,8 +72,7 @@ export function describeSignature(signature) {
 // from what the SVG produced.
 //
 // The design this encodes (see docs/superpowers/specs/2026-08-25-worn-path-
-// trail-design.md, and the long comment on buildTrailFragment in
-// mapDomRenderer.js): each stroke's color tapers from this tile's own wear
+// trail-design.md): each stroke's color tapers from this tile's own wear
 // at the center toward the *border fraction* it shares with the connected
 // neighbor at the edge - not the neighbor's own raw fraction, which put two
 // different colors on the same physical point and produced a hard color wall
@@ -134,17 +131,13 @@ function buildTrailOp(ctx, gx, gy, signature) {
   };
 }
 
-// Every op for one tile, in paint order within that tile. Mirrors
-// applyCellContent's branch structure in mapDomRenderer.js exactly - the two
-// have to agree, since `?renderer=dom` lets them be compared side by side on
-// the same save.
+// Every op for one tile, in paint order within that tile.
 function buildCellOps(ctx, gx, gy, signature, out) {
   if (!signature.resolved) {
     // Reachable whenever the viewport is bigger than the current screen's
     // whole cluster (computeViewportOrigin centers it instead of panning past
     // its edges) - true for town, mini-dungeons and tool dungeons. These
-    // padding cells render as bare ground, the same as .map-tile's own
-    // default background did.
+    // padding cells render as bare ground.
     out.push({ op: 'ground', gx, gy, color: GROUND_COLOR_DEFAULT });
     return;
   }
@@ -157,11 +150,6 @@ function buildCellOps(ctx, gx, gy, signature, out) {
   // so this sits between ground and everything else - matching where
   // .map-tile-quest-ready's own glow lands.
   if (questReady) out.push({ op: 'questGlow', gx, gy });
-
-  // .map-tile-portal::before - a soft shadow that deliberately bleeds
-  // OUTSIDE the tile into its neighbors. First positioned child, so it
-  // paints under the portal's own emoji.
-  if (PORTAL_ACTION_TILES.has(tile)) out.push({ op: 'portalShadow', gx, gy });
 
   if (visited) out.push(buildTrailOp(ctx, gx, gy, signature));
 
@@ -211,7 +199,11 @@ function buildCellOps(ctx, gx, gy, signature, out) {
     if (isHeroOrLoot) sizePx = HERO_AND_LOOT_PX;
     // "Big and scary" - 220% bleeds into all four neighbors, reading as
     // roughly a 2x2 footprint while the walkable tile stays one cell.
-    if (tile === TILES.guardian) sizePx = GUARDIAN_PX;
+    // The dragon boss entrance gets the same treatment, raised 2026-09-12 -
+    // it never had it, unlike every tool guardian and the superboss
+    // entrance/marker, which all read as more prominent landmarks than it
+    // did at plain FULL_SQUARE_PX.
+    if ((tile === TILES.guardian || tile === TILES.boss) && !isPlayer) sizePx = GUARDIAN_PX;
     // Portal tiles crop the 🌌 emoji's own baked-in pale border by drawing it
     // oversized and clipping back to the tile. Excludes isPlayer: standing on
     // a portal draws the hero's emoji, which has no border to crop.
@@ -241,21 +233,87 @@ function buildCellOps(ctx, gx, gy, signature, out) {
 // upward while a player standing below it still renders in front), and
 // within a row later columns paint over earlier ones. Portals and guardians
 // got a flat +1000 on top of that, so they always paint last regardless of
-// row - a portal's shadow bleeds into every neighbor including ones later in
-// the same row, and a guardian at 220% bleeds downward into the row below,
-// which would otherwise clip it.
+// row - a guardian at 220% bleeds downward into the row below, which would
+// otherwise clip it. Portals no longer bleed anything (the shadow that used
+// to justify their own boost was removed 2026-09-12), but stay grouped with
+// guardians here rather than carved into a special case for one less reason.
 //
 // So: one row-major pass over ordinary cells, then a second row-major pass
 // over the z-boosted ones.
 export function buildDrawList(ctx) {
+  const layered = buildLayeredDrawList(ctx, { splitDynamic: false });
+  return {
+    ops: layered.staticOps,
+    playerTile: layered.playerTile,
+    hasContinuousAnimation: layered.hasContinuousAnimation,
+  };
+}
+
+// Whether a cell has to be redrawn every frame rather than living in the
+// cached static layer.
+//
+// The split is static-vs-ANIMATED, deliberately not floor-vs-sprite. Paint
+// order here is per-cell interleaved (a cell's ground paints over the
+// previous cell's overhanging tree - see buildDrawList's own header), so
+// hoisting every floor into one layer and every sprite into another would
+// visibly change obstacle overlap and how trail strokes end at unvisited
+// tiles. Caching whole cells keeps that interleaving exactly.
+//
+// A NOTE ON WHAT IS *NOT* HERE, because the first attempt got it wrong and
+// Timothy caught it: the live set used to also include a 3x3 block around
+// the player. That block punched a hole in the cached layer and refilled it
+// each frame - and refilling it repainted the block's own ground, which
+// erased anything overhanging INTO the block from outside it. Two bugs, one
+// cause: tall trees one row below the block lost their canopies, and a
+// signpost's plank vanished whenever the player stood in the row above it
+// (sign labels draw entirely in the row above their own tile - see
+// drawLabel). Enlarging the block would only have moved the seam further
+// out; you cannot overdraw a sub-rectangle of an interleaved scene without
+// losing the overhang from outside it.
+//
+// The player's cell never needed to be live anyway: the hero and anything
+// riding with them are `followsHero` ops, which paint() already holds back
+// and draws after every tile. So the cache keeps every cell, and the live
+// layer is only the things that genuinely differ frame to frame.
+export function isDynamicCell(signature) {
+  // The quest-board glow pulses on a clock of its own. zBoosted cells
+  // (portals, guardians) are drawn last in the scene by design already, so
+  // keeping them live costs no ordering fidelity at all - portals don't
+  // actually animate on their own anymore, but stay grouped with guardians
+  // here rather than carved into a special case for one less reason.
+  return Boolean(signature.resolved && (signature.questReady || signature.zBoosted));
+}
+
+// One row-major pass, sorting each cell into the cached layer or the live
+// one. `splitDynamic: false` puts everything in staticOps, which is what
+// buildDrawList above (and so the DOM-parity tests) still wants.
+//
+// `animatedCells` comes back so the painter can rebuild the live layer each
+// frame without re-scanning the viewport: portals and quest boards never
+// move, so the list stays valid as long as the cached layer does.
+export function buildLayeredDrawList(ctx, { splitDynamic = true } = {}) {
   const { tilesWide, tilesTall, originGx, originGy } = ctx;
-  const ops = [];
+  const staticOps = [];
+  const dynamicOps = [];
   const boosted = [];
+  const animatedCells = [];
+  const cellOps = [];
   let playerTile = null;
   // Whether anything visible animates on its own (independent of the player
   // moving), so the painter knows to keep a requestAnimationFrame loop alive
   // instead of drawing once and going idle.
   let hasContinuousAnimation = false;
+
+  // A followsHero op is drawn at the hero's interpolated position, which
+  // moves every frame - baking one into the cache would leave a second,
+  // frozen hero behind. They always belong to the live layer.
+  const sortCell = (live) => {
+    for (const op of cellOps) {
+      if (splitDynamic && (live || op.followsHero)) dynamicOps.push(op);
+      else staticOps.push(op);
+    }
+    cellOps.length = 0;
+  };
 
   for (let vr = 0; vr < tilesTall; vr++) {
     for (let vc = 0; vc < tilesWide; vc++) {
@@ -263,25 +321,71 @@ export function buildDrawList(ctx) {
       const gy = originGy + vr;
       const signature = ctx.signatureAt(gx, gy);
       if (signature.resolved && signature.isPlayer) playerTile = { gx, gy };
-      if (signature.resolved && (signature.questReady || PORTAL_ACTION_TILES.has(signature.tile))) {
-        hasContinuousAnimation = true;
+      const live = isDynamicCell(signature);
+      if (live) {
+        hasContinuousAnimation = hasContinuousAnimation
+          || signature.questReady || PORTAL_ACTION_TILES.has(signature.tile);
+        animatedCells.push({ gx, gy });
       }
       if (signature.zBoosted) {
-        boosted.push({ gx, gy, signature });
+        boosted.push({ gx, gy, signature, live });
         // A z-boosted tile still needs its ground painted in the normal pass,
         // or the row-major fill would leave a hole where it sits - only its
         // content is deferred. The boosted pass re-emits ground harmlessly
-        // over the same rect, so this keeps the two passes independent.
-        ops.push({ op: 'ground', gx, gy, color: groundColorFor(signature.tile) });
+        // over the same rect, so this keeps the two passes independent. The
+        // ground is never animated, so it stays cached either way.
+        staticOps.push({ op: 'ground', gx, gy, color: groundColorFor(signature.tile) });
         continue;
       }
-      buildCellOps(ctx, gx, gy, signature, ops);
+      buildCellOps(ctx, gx, gy, signature, cellOps);
+      sortCell(live);
     }
   }
 
+  for (const { gx, gy, signature, live } of boosted) {
+    buildCellOps(ctx, gx, gy, signature, cellOps);
+    sortCell(live);
+  }
+
+  return { staticOps, dynamicOps, animatedCells, playerTile, hasContinuousAnimation };
+}
+
+// The live layer alone, for a frame reusing an already-painted static layer.
+// Visits the player's cell (for the hero and anything riding with them) plus
+// the handful of known animated cells - never the whole viewport, which is
+// where most of the per-frame JS cost used to go.
+export function buildDynamicOps(ctx, animatedCells) {
+  const { playerGx, playerGy } = ctx;
+  const ops = [];
+  const boosted = [];
+  const cellOps = [];
+  let playerTile = null;
+
+  // The player's cell contributes ONLY its followsHero ops. Its ground,
+  // trail and any decoration are in the cached layer and must not be
+  // repainted here - doing so is exactly the bug described on isDynamicCell.
+  const playerSignature = ctx.signatureAt(playerGx, playerGy);
+  if (playerSignature.resolved && playerSignature.isPlayer) {
+    playerTile = { gx: playerGx, gy: playerGy };
+  }
+  buildCellOps(ctx, playerGx, playerGy, playerSignature, cellOps);
+  for (const op of cellOps) if (op.followsHero) ops.push(op);
+  cellOps.length = 0;
+
+  for (const { gx, gy } of animatedCells) {
+    const signature = ctx.signatureAt(gx, gy);
+    if (signature.zBoosted) {
+      boosted.push({ gx, gy, signature });
+      continue;
+    }
+    buildCellOps(ctx, gx, gy, signature, ops);
+  }
+
+  // Boosted last, matching the full pass's own two-pass order.
   for (const { gx, gy, signature } of boosted) {
     buildCellOps(ctx, gx, gy, signature, ops);
   }
 
-  return { ops, playerTile, hasContinuousAnimation };
+  return { ops, playerTile };
 }
+

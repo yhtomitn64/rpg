@@ -1,16 +1,14 @@
 // Real DOM tests for js/screens/mapScreen.js, using jsdom (see
-// tests/helpers/dom.js). Scope: DOM structure driven by state, not pixel-
-// level rendering - see battleScreenDom.test.js's own header for why this
-// pattern exists.
-//
-// Every mount() here passes `renderer: 'dom'` explicitly. The map's default
-// renderer is canvas as of 2026-09-09 (see mapCanvasRenderer.js), and jsdom
-// has no canvas implementation at all - getContext('2d') returns null there -
-// so a canvas mount renders nothing this file could assert against. These
-// tests keep guarding the DOM renderer for as long as `?renderer=dom` exists
-// as a live A/B option; the canvas renderer's own equivalent coverage is in
-// tests/mapDrawList.test.js and tests/mapTrail.test.js, which assert the
-// draw list (pure data) rather than pixels.
+// tests/helpers/dom.js). The map's only renderer is canvas (see
+// mapCanvasRenderer.js) - jsdom has no canvas implementation at all
+// (getContext('2d') returns null there), so nothing about actual pixel
+// rendering is assertable here. This file is scoped to renderer-agnostic
+// game logic instead: keydown -> action wiring, town exits, encounter
+// cooldown, zone-1 step tracking, and gate crossing. The old DOM/CSS-Grid
+// renderer's own rendering assertions (tile classes, z-index, fullsize
+// markers, etc.) were removed along with it - their canvas equivalents live
+// in tests/mapDrawList.test.js and tests/mapTrail.test.js, which assert the
+// draw list (pure data) rather than DOM/pixels.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, teardownDom, createRoot, keydown, keyup } from './helpers/dom.js';
@@ -28,88 +26,9 @@ async function mountTown(state) {
   const { mount } = await import('../js/screens/mapScreen.js');
   const root = createRoot();
   const maps = { town: townMap };
-  mount(root, { renderer: 'dom', state, mapConfig: townMap, maps, worldGrid: buildWorldGrid(maps), callbacks: { onFirstVisit: () => {} } });
+  mount(root, { state, mapConfig: townMap, maps, worldGrid: buildWorldGrid(maps), callbacks: { onFirstVisit: () => {} } });
   return root;
 }
-
-test('mapScreen DOM - quest board glow', async (t) => {
-  t.beforeEach(() => setupDom());
-  t.afterEach(async () => {
-    const { unmount } = await import('../js/screens/mapScreen.js');
-    unmount();
-    teardownDom();
-  });
-
-  await t.test('quest board tile has no glow class with no quests complete', async () => {
-    const root = await mountTown(baseState());
-    assert.equal(root.querySelector('.map-tile-quest-ready'), null);
-  });
-
-  await t.test('quest board tile gets the glow class once a quest is turn-in ready', async () => {
-    const root = await mountTown(baseState({ questProgress: { boar: 3 } }));
-    assert.ok(root.querySelector('.map-tile-quest-ready'), 'expected the quest board tile to carry the glow class');
-  });
-
-  await t.test('quest board tile loses the glow class once every ready quest is turned in', async () => {
-    const root = await mountTown(baseState({ questProgress: { boar: 0 } }));
-    assert.equal(root.querySelector('.map-tile-quest-ready'), null);
-  });
-
-  // jsdom's clientWidth/clientHeight always read 0 (no real layout engine),
-  // so mapScreen.js falls back to DEFAULT_VIEWPORT_TILES_WIDE/TALL - every
-  // one of those viewport cells must render its own .map-tile div, even the
-  // ones landing outside town's real 20x14 extent (town is now close in
-  // size to the 21x13 fallback viewport, so only a modest strip of cells
-  // resolves to nothing and renders content-less - see render()'s
-  // `if (!resolved)` branch). A regression here (e.g. skipping unresolved
-  // cells outright instead of rendering an empty placeholder) previously
-  // let CSS grid auto-flow silently pack the real cells into the wrong
-  // rows/columns without any test catching it - still worth guarding even
-  // with fewer unresolved cells today.
-  await t.test('every viewport cell renders its own .map-tile div, including ones outside the map itself', async () => {
-    const root = await mountTown(baseState());
-    const tileCount = root.querySelectorAll('.map-tile').length;
-    assert.equal(tileCount, 21 * 13, 'expected one .map-tile per viewport cell (DEFAULT_VIEWPORT_TILES_WIDE x DEFAULT_VIEWPORT_TILES_TALL)');
-  });
-});
-
-test('mapScreen DOM - portal tiles', async (t) => {
-  t.beforeEach(() => setupDom());
-  t.afterEach(async () => {
-    const { unmount } = await import('../js/screens/mapScreen.js');
-    unmount();
-    teardownDom();
-  });
-
-  await t.test('origin portal tile renders (and no return tile yet) when state.portal exists with returnPending false', async () => {
-    // originX/Y (2,2) deliberately differs from baseState()'s player
-    // position (townMap.startPosition, 7,9) - a tile the player is
-    // standing on renders the hero emoji instead of the tile's own (see
-    // render()'s isPlayer branch), so testing at the player's own position
-    // would hide the very thing this test checks for.
-    const state = baseState({ portal: { originScreenId: 'town', originX: 2, originY: 2, returnPending: false } });
-    const root = await mountTown(state);
-    const originCell = root.querySelector('.map-tile-portal-origin');
-    assert.ok(originCell, 'expected the origin portal tile to render');
-    assert.ok(originCell.textContent.includes('🌌'), 'expected the portal emoji on the origin tile');
-    assert.equal(root.querySelector('.map-tile-portal-return'), null, 'return portal should not render until returnPending is true');
-  });
-
-  await t.test('return portal tile renders at the fixed town spot once returnPending is true, origin tile is on a different screen so does not render here', async () => {
-    const state = baseState({ portal: { originScreenId: 'north', originX: 3, originY: 3, returnPending: true } });
-    const root = await mountTown(state);
-    const returnCell = root.querySelector('.map-tile-portal-return');
-    assert.ok(returnCell, 'expected the return portal tile to render');
-    assert.ok(returnCell.textContent.includes('🌌'), 'expected the portal emoji on the return tile');
-    assert.equal(root.querySelector('.map-tile-portal-origin'), null, "origin tile is on 'north', not 'town' - should not render in this mount");
-  });
-
-  await t.test('no portal tile anywhere when state.portal is null', async () => {
-    const root = await mountTown(baseState({ portal: null }));
-    assert.equal(root.querySelector('.map-tile-portal-origin'), null);
-    assert.equal(root.querySelector('.map-tile-portal-return'), null);
-  });
-});
 
 test('mapScreen DOM - portal pull effect delays the action', async (t) => {
   t.beforeEach(() => setupDom());
@@ -119,7 +38,8 @@ test('mapScreen DOM - portal pull effect delays the action', async (t) => {
     teardownDom();
   });
 
-  await t.test('stepping onto the return portal plays the pull animation and delays enterPortalToOrigin, instead of firing it in the same tick', async () => {
+  await t.test('stepping onto the return portal plays the pull animation and delays enterPortalToOrigin, instead of firing it in the same tick', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { mount } = await import('../js/screens/mapScreen.js');
     const root = createRoot();
     const maps = { town: townMap };
@@ -130,7 +50,6 @@ test('mapScreen DOM - portal pull effect delays the action', async (t) => {
       portal: { originScreenId: 'north', originX: 3, originY: 3, returnPending: true },
     });
     mount(root, {
-      renderer: 'dom',
       state,
       mapConfig: townMap,
       maps,
@@ -143,14 +62,13 @@ test('mapScreen DOM - portal pull effect delays the action', async (t) => {
     // keyup, and a held key keeps stepping on mapScreen's own walk timer.
     keyup('ArrowUp');
     assert.deepEqual(seenActions, [], 'expected enterPortalToOrigin to not fire in the same tick as the step');
-    const marker = root.querySelector('.map-tile-player .map-tile-fullsize');
-    assert.ok(marker?.classList.contains('map-tile-player-portal-pull'), 'expected the pull animation class on the player marker');
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    t.mock.timers.tick(500);
     assert.deepEqual(seenActions, ['enterPortalToOrigin']);
   });
 
-  await t.test('a keypress during the pull window is ignored (guards against a stale delayed action firing after the player moved again)', async () => {
+  await t.test('a keypress during the pull window is ignored (guards against a stale delayed action firing after the player moved again)', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'] });
     const { mount } = await import('../js/screens/mapScreen.js');
     const root = createRoot();
     const maps = { town: townMap };
@@ -160,7 +78,6 @@ test('mapScreen DOM - portal pull effect delays the action', async (t) => {
       portal: { originScreenId: 'north', originX: 3, originY: 3, returnPending: true },
     });
     mount(root, {
-      renderer: 'dom',
       state,
       mapConfig: townMap,
       maps,
@@ -175,7 +92,7 @@ test('mapScreen DOM - portal pull effect delays the action', async (t) => {
     // Both released before the wait - see the note on the previous test.
     keyup('ArrowUp');
     keyup('ArrowDown');
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    t.mock.timers.tick(500);
     assert.deepEqual(seenActions, ['enterPortalToOrigin'], 'expected exactly one delayed action, not a stale/duplicate fire');
   });
 });
@@ -194,7 +111,6 @@ test('mapScreen DOM - portal hotkey', async (t) => {
     const maps = { town: townMap };
     const seenActions = [];
     mount(root, {
-      renderer: 'dom',
       state: baseState(),
       mapConfig: townMap,
       maps,
@@ -211,7 +127,6 @@ test('mapScreen DOM - portal hotkey', async (t) => {
     const maps = { town: townMap };
     const seenActions = [];
     mount(root, {
-      renderer: 'dom',
       state: baseState(),
       mapConfig: townMap,
       maps,
@@ -224,11 +139,13 @@ test('mapScreen DOM - portal hotkey', async (t) => {
 });
 
 // Old Safari-specific bug: a CSS Grid whose tracks size aspect-ratio
-// children (.map-grid / .map-tile) didn't reliably re-run its track-sizing
-// pass on a live window resize. The grid is fixed-pixel-sized now (not
-// 1fr-stretched), and render() rebuilds the whole viewport/grid from
-// scratch, so this now just confirms a resize triggers a fresh render
-// rather than leaving the old grid element in place.
+// children didn't reliably re-run its track-sizing pass on a live window
+// resize - fixed long before the canvas rewrite by making the grid
+// fixed-pixel-sized rather than 1fr-stretched. What's still worth guarding,
+// independent of which renderer draws it, is that a resize triggers a fresh
+// full rebuild rather than leaving the old viewport contents in place -
+// render() rebuilds the whole viewport from scratch, so the canvas element
+// itself gets replaced same as the old .map-grid did.
 test('mapScreen DOM - resize triggers a fresh render', async (t) => {
   t.beforeEach(() => setupDom());
   t.afterEach(async () => {
@@ -237,83 +154,16 @@ test('mapScreen DOM - resize triggers a fresh render', async (t) => {
     teardownDom();
   });
 
-  await t.test('window resize replaces the mounted map grid element', async () => {
+  await t.test('window resize replaces the mounted map canvas element', async () => {
     const root = await mountTown(baseState());
-    const gridBefore = root.querySelector('.map-grid');
+    const canvasBefore = root.querySelector('.map-canvas');
+    assert.ok(canvasBefore, 'expected a .map-canvas element after mount');
 
     window.dispatchEvent(new Event('resize'));
 
-    const gridAfter = root.querySelector('.map-grid');
-    assert.ok(gridAfter, 'expected a .map-grid element to still exist after resize');
-    assert.notEqual(gridBefore, gridAfter, 'expected resize to rebuild the map grid element');
-  });
-});
-
-// Two tiny synthetic screens (same fakeScreen-style minimalism as
-// worldGrid.test.js), linked west/east, with a tool-gated mountain sitting
-// right on the shared boundary's far side. This exercises tryMove's real
-// keyboard path end to end across a screen crossing - not just a hand-trace
-// of the code - since nothing else in this file drives tryMove at all.
-// Regresses the bug this task fixed: crossing a screen boundary onto a
-// tool-gated tile used to teleport past tryMove's own passability check
-// entirely (the old onEdgeTransition path), so a pick-in-hand player
-// landing on a mountain never converted it to rubble.
-// Root cause of the large-window hitching Timothy reported: render() used to
-// do rootEl.innerHTML = '' + a full rebuild of every visible tile on every
-// single step (tryMove -> render()), so a bigger window (more visible tiles)
-// meant more DOM work per keypress with no ceiling. The fix keeps a
-// persistent grid and only touches cells whose world content actually
-// changed - see mapScreen.js's renderStep()/cellCache. This fixture map (7
-// wide) is far smaller than jsdom's 21-wide fallback viewport, so per
-// computeViewportOrigin (js/systems/world.js) the origin never pans as the
-// player moves - every viewport cell maps to the exact same world tile
-// before and after the step, so every .map-tile element (not just ones
-// untouched by the step) should be the same DOM node reference, with only
-// content mutated in place.
-test('mapScreen DOM - render diffing reuses DOM elements across steps', async (t) => {
-  t.beforeEach(() => setupDom());
-  t.afterEach(async () => {
-    const { unmount } = await import('../js/screens/mapScreen.js');
-    unmount();
-    teardownDom();
-  });
-
-  await t.test('a step does not replace any .map-tile element (world-to-screen mapping is unchanged)', async () => {
-    const plains = {
-      id: 'plains',
-      legend: { '.': 'grass' },
-      rows: ['.......', '.......', '.......'],
-      neighbors: {},
-      monsterTable: [],
-      encounterChance: 0,
-      cacheChance: 0,
-    };
-    const maps = { plains };
-    const worldGrid = buildWorldGrid(maps);
-    const state = baseState({ position: { x: 1, y: 1 }, map: 'plains' });
-
-    const { mount } = await import('../js/screens/mapScreen.js');
-    const root = createRoot();
-    mount(root, {
-      renderer: 'dom',
-      state, mapConfig: plains, maps, worldGrid,
-      callbacks: {
-        onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
-        onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
-        onGateReward: () => {}, onEncounter: () => {},
-      },
-    });
-
-    const cellsBefore = [...root.querySelectorAll('.map-tile')];
-    assert.equal(cellsBefore.length, 21 * 13, 'sanity check: fallback viewport size');
-
-    keydown('ArrowRight');
-
-    const cellsAfter = [...root.querySelectorAll('.map-tile')];
-    assert.equal(cellsAfter.length, cellsBefore.length);
-    for (let i = 0; i < cellsBefore.length; i++) {
-      assert.equal(cellsAfter[i], cellsBefore[i], `expected .map-tile at index ${i} to be the same DOM element across a step`);
-    }
+    const canvasAfter = root.querySelector('.map-canvas');
+    assert.ok(canvasAfter, 'expected a .map-canvas element to still exist after resize');
+    assert.notEqual(canvasBefore, canvasAfter, 'expected resize to rebuild the map viewport element');
   });
 });
 
@@ -365,7 +215,6 @@ test('mapScreen DOM - crossing a screen boundary onto a tool-gated tile', async 
     const { mount } = await import('../js/screens/mapScreen.js');
     const root = createRoot();
     mount(root, {
-      renderer: 'dom',
       state,
       mapConfig: westScreen,
       maps,
@@ -381,6 +230,7 @@ test('mapScreen DOM - crossing a screen boundary onto a tool-gated tile', async 
         onCacheFound: () => {},
         onGateReward: () => {},
         onEncounter: () => {},
+        onWornPathHint: () => {},
       },
     });
 
@@ -434,7 +284,6 @@ test('mapScreen DOM - encounter cooldown blocks the next few steps after a rando
     const { mount } = await import('../js/screens/mapScreen.js');
     const root = createRoot();
     mount(root, {
-      renderer: 'dom',
       state,
       mapConfig: plains,
       maps,
@@ -450,6 +299,7 @@ test('mapScreen DOM - encounter cooldown blocks the next few steps after a rando
         onCacheFound: () => {},
         onGateReward: () => {},
         onEncounter: () => { encounterCount += 1; },
+        onWornPathHint: () => {},
       },
     });
 
@@ -503,12 +353,11 @@ test('mapScreen DOM - zone-1 step tracking', async (t) => {
     const { mount } = await import('../js/screens/mapScreen.js');
     const root = createRoot();
     mount(root, {
-      renderer: 'dom',
       state, mapConfig: northScreen, maps, worldGrid,
       callbacks: {
         onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
         onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
-        onGateReward: () => {}, onEncounter: () => {},
+        onGateReward: () => {}, onEncounter: () => {}, onWornPathHint: () => {},
       },
     });
     assert.equal(state.zone1Steps, 0);
@@ -539,12 +388,11 @@ test('mapScreen DOM - zone-1 step tracking', async (t) => {
     const { mount } = await import('../js/screens/mapScreen.js');
     const root = createRoot();
     mount(root, {
-      renderer: 'dom',
       state, mapConfig: centerScreen, maps, worldGrid,
       callbacks: {
         onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
         onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
-        onGateReward: () => {}, onEncounter: () => {},
+        onGateReward: () => {}, onEncounter: () => {}, onWornPathHint: () => {},
       },
     });
     keydown('ArrowRight');
@@ -569,7 +417,7 @@ test('mapScreen DOM - group encounter roll passes monsterTable/ngPlusCycle/zone1
     // check (mapConfig.miniDungeonChance is undefined below, so this always
     // misses regardless of the value rolled - still consumes one call), (2)
     // resolveStepDiscovery's cache check (cacheChance: 0 below, same deal -
-    // always misses, still consumes one call), (3) the encounterChance roll
+        // always misses, still consumes one call), (3) the encounterChance roll
     // (must be < 1), (4) rollEliteEncounter's own roll
     // (js/systems/eliteEncounter.js, ELITE_ENCOUNTER_CHANCE = 0.05 - must
     // roll >= 0.05 to miss), (5) picking monsterId out of monsterTable
@@ -609,12 +457,11 @@ test('mapScreen DOM - group encounter roll passes monsterTable/ngPlusCycle/zone1
       const root = createRoot();
       let encounteredIds = null;
       mount(root, {
-      renderer: 'dom',
         state, mapConfig: northScreen, maps, worldGrid,
         callbacks: {
           onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
           onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
-          onGateReward: () => {}, onEncounter: (ids) => { encounteredIds = ids; },
+          onGateReward: () => {}, onEncounter: (ids) => { encounteredIds = ids; }, onWornPathHint: () => {},
         },
       });
       keydown('ArrowRight');
@@ -665,12 +512,11 @@ test('mapScreen DOM - group encounter roll passes monsterTable/ngPlusCycle/zone1
       const root = createRoot();
       let encounteredIds = null;
       mount(root, {
-      renderer: 'dom',
         state, mapConfig: northScreen, maps, worldGrid,
         callbacks: {
           onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
           onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
-          onGateReward: () => {}, onEncounter: (ids) => { encounteredIds = ids; },
+          onGateReward: () => {}, onEncounter: (ids) => { encounteredIds = ids; }, onWornPathHint: () => {},
         },
       });
       keydown('ArrowRight');
@@ -682,7 +528,223 @@ test('mapScreen DOM - group encounter roll passes monsterTable/ngPlusCycle/zone1
   });
 });
 
-test('mapScreen DOM - town exits and signage', async (t) => {
+// See docs/superpowers/specs/2026-09-12-worn-path-encounter-discount-design.md.
+// Same Math.random call-order dependency as the mixed-species group test
+// above: (1) mini-dungeon check (miniDungeonChance undefined, always misses,
+// still consumes a call), (2) cache check (cacheChance: 0, same deal), (3)
+// the encounterChance roll itself, then - only if that roll hits - (4) the
+// elite roll and (5) the monsterTable pick. monsterKillCounts stays at 0 so
+// rollEncounterGroup's own kills-threshold check short-circuits before ever
+// calling rng() (js/systems/groupEncounters.js), consuming no further calls.
+test('mapScreen DOM - worn-path discount reduces the wild-encounter roll', async (t) => {
+  t.beforeEach(() => setupDom());
+  t.afterEach(async () => {
+    const { unmount } = await import('../js/screens/mapScreen.js');
+    unmount();
+    teardownDom();
+  });
+
+  // 7 columns wide, moving right from x=1 to x=2 - both interior, non-edge
+  // tiles (same shape as the encounter-cooldown fixture above), so the step
+  // actually resolves. A narrower map's rightmost column is a sealed world
+  // edge (isSealedWorldEdge) and silently blocks the move entirely - caught
+  // live building this test, when a 3-wide version left position unchanged.
+  function wornPlains() {
+    return {
+      id: 'plains',
+      legend: { '.': 'grass' },
+      rows: ['.......', '.......', '.......'],
+      neighbors: {},
+      monsterTable: ['boar'],
+      encounterChance: 0.5,
+      cacheChance: 0,
+    };
+  }
+
+  await t.test('a fully-worn tile can turn a would-be encounter into a miss', async () => {
+    const originalRandom = Math.random;
+    // 0.3 sits between the discounted threshold (0.5 * 0.5 = 0.25, a miss)
+    // and the undiscounted one (0.5, a hit) - the value that actually
+    // distinguishes the two behaviors under test.
+    const sequence = [0.5, 0.5, 0.3];
+    let i = 0;
+    Math.random = () => sequence[Math.min(i++, sequence.length - 1)];
+    try {
+      const plains = wornPlains();
+      const maps = { plains };
+      const worldGrid = buildWorldGrid(maps);
+      const state = baseState({
+        map: 'plains',
+        position: { x: 1, y: 1 },
+        // Pre-worn to TRAIL_WEAR_CAP - the tile being stepped onto (2, 1) has
+        // already been walked 10 times before this step, not by this step.
+        visited: { plains: { '2,1': { count: 10, dirs: [] } } },
+      });
+      let encountered = false;
+      const { mount } = await import('../js/screens/mapScreen.js');
+      const root = createRoot();
+      mount(root, {
+        state, mapConfig: plains, maps, worldGrid,
+        callbacks: {
+          onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
+          onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
+          onGateReward: () => {}, onEncounter: () => { encountered = true; }, onWornPathHint: () => {},
+        },
+      });
+      keydown('ArrowRight');
+      assert.equal(encountered, false, 'expected the worn-path discount to turn this roll into a miss');
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  await t.test('a partially-worn tile applies a proportional discount, not just the full-wear case', async () => {
+    const originalRandom = Math.random;
+    // count: 5 is half of TRAIL_WEAR_CAP (10), so the multiplier is
+    // 1 - 0.5*0.5 = 0.75 - effective chance 0.5*0.75 = 0.375. 0.4 sits
+    // between that and the undiscounted 0.5, so this only misses if the
+    // real call site actually applies a *proportional* (not all-or-nothing)
+    // discount for a mid-range visit count.
+    const sequence = [0.5, 0.5, 0.4];
+    let i = 0;
+    Math.random = () => sequence[Math.min(i++, sequence.length - 1)];
+    try {
+      const plains = wornPlains();
+      const maps = { plains };
+      const worldGrid = buildWorldGrid(maps);
+      const state = baseState({
+        map: 'plains',
+        position: { x: 1, y: 1 },
+        visited: { plains: { '2,1': { count: 5, dirs: [] } } },
+      });
+      let encountered = false;
+      const { mount } = await import('../js/screens/mapScreen.js');
+      const root = createRoot();
+      mount(root, {
+        state, mapConfig: plains, maps, worldGrid,
+        callbacks: {
+          onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
+          onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
+          onGateReward: () => {}, onEncounter: () => { encountered = true; }, onWornPathHint: () => {},
+        },
+      });
+      keydown('ArrowRight');
+      assert.equal(encountered, false, 'expected the half-worn tile\'s proportional discount to turn this roll into a miss');
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  await t.test('disabling the setting restores the undiscounted chance on the same tile/roll', async () => {
+    const originalRandom = Math.random;
+    const sequence = [0.5, 0.5, 0.3, 0.99, 0.01];
+    let i = 0;
+    Math.random = () => sequence[Math.min(i++, sequence.length - 1)];
+    try {
+      const plains = wornPlains();
+      const maps = { plains };
+      const worldGrid = buildWorldGrid(maps);
+      const state = baseState({
+        map: 'plains',
+        position: { x: 1, y: 1 },
+        visited: { plains: { '2,1': { count: 10, dirs: [] } } },
+      });
+      state.settings = { ...state.settings, wornPathDiscountEnabled: false };
+      let encountered = false;
+      const { mount } = await import('../js/screens/mapScreen.js');
+      const root = createRoot();
+      mount(root, {
+        state, mapConfig: plains, maps, worldGrid,
+        callbacks: {
+          onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
+          onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
+          onGateReward: () => {}, onEncounter: () => { encountered = true; }, onWornPathHint: () => {},
+        },
+      });
+      keydown('ArrowRight');
+      assert.equal(encountered, true, 'expected the same roll to hit once the discount setting is off');
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  await t.test('fires the one-time hint banner callback the first time the discount actually applies, gated on the setting', async () => {
+    const plains = wornPlains();
+    const maps = { plains };
+    const worldGrid = buildWorldGrid(maps);
+    const state = baseState({
+      map: 'plains',
+      position: { x: 1, y: 1 },
+      visited: { plains: { '2,1': { count: 10, dirs: [] } } },
+    });
+    let hintCount = 0;
+    const { mount } = await import('../js/screens/mapScreen.js');
+    const root = createRoot();
+    mount(root, {
+      state, mapConfig: plains, maps, worldGrid,
+      callbacks: {
+        onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
+        onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
+        onGateReward: () => {}, onEncounter: () => {}, onWornPathHint: () => { hintCount += 1; },
+      },
+    });
+    keydown('ArrowRight');
+    assert.equal(hintCount, 1, 'expected the hint to fire once, stepping onto an already-worn tile');
+    assert.equal(state.flags.wornPathHintShown, true);
+  });
+
+  await t.test('never fires the hint while debugNoEncounters is set (encounters are off entirely in that mode)', async () => {
+    const plains = wornPlains();
+    const maps = { plains };
+    const worldGrid = buildWorldGrid(maps);
+    const state = baseState({
+      map: 'plains',
+      position: { x: 1, y: 1 },
+      visited: { plains: { '2,1': { count: 10, dirs: [] } } },
+    });
+    let hintCount = 0;
+    const { mount } = await import('../js/screens/mapScreen.js');
+    const root = createRoot();
+    mount(root, {
+      debugNoEncounters: true,
+      state, mapConfig: plains, maps, worldGrid,
+      callbacks: {
+        onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
+        onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
+        onGateReward: () => {}, onEncounter: () => {}, onWornPathHint: () => { hintCount += 1; },
+      },
+    });
+    keydown('ArrowRight');
+    assert.equal(hintCount, 0, 'expected no hint while debugNoEncounters is set - announcing a discount when encounters are off entirely would be misleading');
+  });
+
+  await t.test('never fires the hint when the discount setting is off', async () => {
+    const plains = wornPlains();
+    const maps = { plains };
+    const worldGrid = buildWorldGrid(maps);
+    const state = baseState({
+      map: 'plains',
+      position: { x: 1, y: 1 },
+      visited: { plains: { '2,1': { count: 10, dirs: [] } } },
+    });
+    state.settings = { ...state.settings, wornPathDiscountEnabled: false };
+    let hintCount = 0;
+    const { mount } = await import('../js/screens/mapScreen.js');
+    const root = createRoot();
+    mount(root, {
+      state, mapConfig: plains, maps, worldGrid,
+      callbacks: {
+        onFirstVisit: () => {}, onMove: () => {}, onToolGateCleared: () => {}, onLockedGate: () => {},
+        onToolGateNearby: () => {}, onAction: () => {}, onEnterMiniDungeon: () => {}, onCacheFound: () => {},
+        onGateReward: () => {}, onEncounter: () => {}, onWornPathHint: () => { hintCount += 1; },
+      },
+    });
+    keydown('ArrowRight');
+    assert.equal(hintCount, 0, 'expected no hint while the discount setting is off');
+  });
+});
+
+test('mapScreen DOM - town exits', async (t) => {
   t.beforeEach(() => setupDom());
   t.afterEach(async () => {
     const { unmount } = await import('../js/screens/mapScreen.js');
@@ -696,7 +758,6 @@ test('mapScreen DOM - town exits and signage', async (t) => {
     const maps = { town: townMap };
     let capturedAction = null;
     mount(root, {
-      renderer: 'dom',
       state: baseState({ position }),
       mapConfig: townMap,
       maps,
@@ -729,83 +790,20 @@ test('mapScreen DOM - town exits and signage', async (t) => {
     keydown('ArrowRight');
     assert.equal(getAction(), 'exitTownEast');
   });
-
-  await t.test('no door emoji renders anywhere in town', async () => {
-    const root = await mountTown(baseState());
-    assert.ok(!root.textContent.includes('🚪'), 'town should not render the door emoji anymore');
-  });
-
-  await t.test('all 4 town features get a signpost with the right label, and nothing else does', async () => {
-    const root = await mountTown(baseState());
-    const signposts = [...root.querySelectorAll('.map-tile-signpost')];
-    const labels = signposts.map((el) => el.textContent).sort();
-    assert.deepEqual(labels, ['Blacksmith', 'Quest Board', 'Shop', 'Well']);
-  });
 });
 
-test('mapScreen DOM - tool dungeon guardian rendering', async (t) => {
-  t.beforeEach(() => setupDom());
-  t.afterEach(async () => {
-    const { unmount } = await import('../js/screens/mapScreen.js');
-    unmount();
-    teardownDom();
-  });
-
-  async function mountAxeDungeon() {
-    const { axeDungeonMap } = await import('../js/maps/toolDungeons/axeDungeon.js');
-    const { mount } = await import('../js/screens/mapScreen.js');
-    const root = createRoot();
-    const maps = { axeDungeon: axeDungeonMap };
-    mount(root, {
-      renderer: 'dom',
-      state: baseState({ position: { ...axeDungeonMap.startPosition } }),
-      mapConfig: axeDungeonMap,
-      maps,
-      worldGrid: buildWorldGrid(maps),
-      callbacks: { onFirstVisit: () => {} },
-    });
-    return { root, axeDungeonMap };
-  }
-
-  // Raised 2026-09-07: the guardian tile fell through to .map-tile's bare
-  // default background instead of grass - see GRASS_CONTEXT_MARKERS's own
-  // comment in mapScreen.js for the established pattern this repeats
-  // (portals/shop/smith/etc. hit the exact same bug before).
-  await t.test('guardian tile gets the grass background class, not the bare default', async () => {
-    const { root, axeDungeonMap } = await mountAxeDungeon();
-    const { x, y } = findGuardianPosition(axeDungeonMap);
-    const cell = tileAtViewportPosition(root, axeDungeonMap, x, y);
-    assert.ok(cell.classList.contains('map-tile-grass'), 'expected the guardian tile to carry map-tile-grass');
-  });
-
-  // "Make the tool bosses take up like 4 tiles instead of 1 so they look
-  // big and scary" - see GUARDIAN_PX's own comment in mapScreen.js.
-  await t.test('guardian renders oversized (GUARDIAN_PX), not the plain FULL_SQUARE_PX landmark size', async () => {
-    const { root, axeDungeonMap } = await mountAxeDungeon();
-    const { x, y } = findGuardianPosition(axeDungeonMap);
-    const cell = tileAtViewportPosition(root, axeDungeonMap, x, y);
-    const marker = cell.querySelector('.map-tile-fullsize');
-    assert.ok(marker, 'expected a .map-tile-fullsize marker on the guardian tile');
-    assert.equal(marker.style.fontSize, '105.6px');
-  });
-
-  // Without this, an oversized sprite bleeding downward would be painted
-  // over by the row below under the plain row-based z-index scheme - see
-  // that line's own comment in mapScreen.js.
-  await t.test('guardian tile gets the same always-on-top z-index boost as portals', async () => {
-    const { root, axeDungeonMap } = await mountAxeDungeon();
-    const { x, y } = findGuardianPosition(axeDungeonMap);
-    const cell = tileAtViewportPosition(root, axeDungeonMap, x, y);
-    assert.equal(cell.style.zIndex, String(y + 1000));
-  });
-
-  // "In the center of their map instead of the corner" - all four tool
-  // dungeons share this exact layout (see axeDungeon.js's own comment).
-  await t.test('guardian sits at the map center, not the old bottom-right corner', async () => {
-    const { axeDungeonMap } = await import('../js/maps/toolDungeons/axeDungeon.js');
-    const { x, y } = findGuardianPosition(axeDungeonMap);
-    assert.deepEqual({ x, y }, { x: 10, y: 6 });
-  });
+// Not renderer-dependent at all - this reads the axe dungeon's own static
+// map data directly, with nothing mounted. Kept because nothing else in the
+// suite checks this ("In the center of their map instead of the corner" -
+// all four tool dungeons share this exact layout, see axeDungeon.js's own
+// comment) - the rest of the old "tool dungeon guardian rendering" block
+// this used to live in (grass background class, oversized fontSize,
+// z-index) was pure DOM-renderer rendering assertions, now covered instead
+// by tests/mapDrawList.test.js.
+test('mapScreen DOM - tool dungeon guardian position', async () => {
+  const { axeDungeonMap } = await import('../js/maps/toolDungeons/axeDungeon.js');
+  const { x, y } = findGuardianPosition(axeDungeonMap);
+  assert.deepEqual({ x, y }, { x: 10, y: 6 });
 });
 
 function findGuardianPosition(map) {
@@ -815,15 +813,4 @@ function findGuardianPosition(map) {
     }
   }
   throw new Error(`${map.id} has no guardian tile`);
-}
-
-// The tool dungeons are now exactly DEFAULT_VIEWPORT_TILES_WIDE/TALL
-// (21x13, jsdom's fallback viewport size) - computeViewportOrigin
-// (js/systems/world.js) only centers/pans a cluster SMALLER than the
-// viewport; a cluster exactly the viewport's own size gets origin ==
-// bounds.min with zero offset, so a map-local (x, y) lands at that exact
-// same viewport-cell index with no translation needed.
-function tileAtViewportPosition(root, map, mapX, mapY) {
-  const cells = root.querySelectorAll('.map-tile');
-  return cells[mapY * 21 + mapX];
 }
