@@ -6,6 +6,13 @@
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
   {
+    version: '0.37.3',
+    date: '2026-09-14',
+    highlights: [
+      'Fixed: dying to a superboss now offers the same warp-back-to-entrance option the main dungeon already had, instead of sending you all the way back to town.',
+    ],
+  },
+  {
     version: '0.37.2',
     date: '2026-09-14',
     highlights: [

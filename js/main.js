@@ -156,6 +156,16 @@ function findSuperBossAt(screenId, x, y) {
   );
 }
 
+// Used by promptPostDeathTravel's warp-back-to-entrance option, which
+// otherwise only recognized the literal main dungeon (state.map === 'dungeon')
+// - dying inside a superboss's own dungeon fell through to "not a dungeon,
+// no warp offered" entirely, meaning a loss there sent the player all the way
+// back to town with no shortcut. Raised live: "you should be able to retry
+// the super bosses so you don't have to run so far back."
+function findSuperBossByDungeonMapId(mapId) {
+  return Object.values(SUPER_BOSSES).find((entry) => entry.hasDungeon && entry.dungeonMapId === mapId);
+}
+
 let state = null;
 let activeSlotId = null;
 let audioStarted = false;
@@ -1257,7 +1267,8 @@ function handleBattleEnd(outcome, killedMonsterIds, totalDamageDealt = 0) {
 }
 
 function promptPostDeathTravel() {
-  const diedInDungeon = state.map === 'dungeon';
+  const diedToSuperBoss = findSuperBossByDungeonMapId(state.map);
+  const diedInDungeon = state.map === 'dungeon' || Boolean(diedToSuperBoss);
   const warpCost = postDeathWarpCost(state.player.level);
   setHudButtonsEnabled(false);
   mountOverlay(postDeathTravelScreen, {
@@ -1272,7 +1283,11 @@ function promptPostDeathTravel() {
       },
       onWarpToDungeon: () => {
         Object.assign(state, spendGold(state, warpCost));
-        const { screenId, x, y } = state.dungeonEntrancePosition;
+        // A superboss's own entrance marker (SUPER_BOSSES' own screenId/x/y)
+        // for a superboss dungeon death, same as state.dungeonEntrancePosition
+        // does for the one main dungeon - either way this skips the walk back
+        // to the entrance, not the dungeon's own interior.
+        const { screenId, x, y } = diedToSuperBoss || state.dungeonEntrancePosition;
         state.position = { x, y };
         playSfx('comebackWarp');
         persist();
@@ -1297,7 +1312,7 @@ initItemTooltip();
 // automated, not tied to the real CHANGELOG.md version. Gated on hostname
 // (never shows on the deployed site) rather than a URL param, so it works
 // on a plain reload with no param to remember.
-const DEV_BUILD_TAG = 'cave-dungeon-fixes-1';
+const DEV_BUILD_TAG = 'superboss-retry-warp-1';
 if (typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   const badge = document.createElement('div');
   badge.textContent = `dev build loaded: ${DEV_BUILD_TAG}`;

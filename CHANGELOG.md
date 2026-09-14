@@ -24,6 +24,21 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.37.3] - 2026-09-14
+
+### Fixed
+- **Dying to a superboss offered no warp-back option, unlike the main
+  dungeon.** `promptPostDeathTravel` (`js/main.js`) only recognized
+  `state.map === 'dungeon'` as "died in a dungeon" - a loss inside any of
+  the 5 superboss dungeons fell through to "not a dungeon" entirely,
+  sending the player all the way back to town with no shortcut. Raised
+  live: "you should be able to retry the super bosses so you don't have to
+  run so far back." Now recognizes a superboss's own dungeon map id too,
+  via a new `findSuperBossByDungeonMapId` lookup, and warps back to that
+  superboss's own entrance marker in the wilderness (same mechanic the
+  main dungeon already used, extended to cover all 5) - skips the walk
+  back to the entrance, not the dungeon's own interior.
+
 ## [0.37.2] - 2026-09-14
 
 ### Changed
