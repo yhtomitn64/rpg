@@ -24,6 +24,31 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-09-14
+
+### Added
+- **Email one-time-code cross-device save.** A second, standing
+  alternative to the existing 60-second code-transfer flow: Settings →
+  Cloud Save (beta) → "Email me a code" sends an 8-character code to
+  any email address, valid for up to 24 hours and kept alive by a
+  rolling TTL while the source character keeps playing (auto-pushed at
+  most once every 2 minutes, with a guaranteed final push via
+  `navigator.sendBeacon` on tab close). Entering the code on another
+  device imports or overwrites the character the same way the existing
+  code-transfer load path already does (`findSlotByCharacterId`/
+  `importSlot`, `js/systems/saveSlots.js`). Backed by three new
+  Cloudflare Pages Functions (`functions/api/save/email/{send,push,
+  redeem}.js`) and Resend for the actual email send; the email address
+  itself is never written to KV or logged anywhere, only used
+  transiently to trigger the send (see the design doc's Privacy
+  section for the precise claim). `functions/_shared/rateLimit.js`
+  gained an optional `keyPrefix`/`identifier` so each of the three new
+  routes gets its own isolated abuse-throttling counter. See
+  `docs/superpowers/specs/2026-09-14-email-otp-cloud-save-design.md`.
+  A same-day Google Sign-In design for the same goal was scaffolded
+  only as a spec, then shelved before any code was written, in favor
+  of this approach - see that spec's own "shelved" note.
+
 ## [0.37.3] - 2026-09-14
 
 ### Fixed

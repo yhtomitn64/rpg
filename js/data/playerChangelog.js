@@ -6,6 +6,13 @@
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
   {
+    version: '0.38.0',
+    date: '2026-09-14',
+    highlights: [
+      'New: a second way to move your character to another computer - Settings > Cloud Save > "Email me a code" sends you an 8-character code by email, good for up to 24 hours (it stays alive as long as you keep playing). We never store or log your email - it\'s only used to send that one code.',
+    ],
+  },
+  {
     version: '0.37.3',
     date: '2026-09-14',
     highlights: [
