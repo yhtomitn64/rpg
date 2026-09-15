@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { setupDom, teardownDom, createRoot, click, keydown } from './helpers/dom.js';
 import { createNewGame } from '../js/state.js';
+import { clearActiveEmailCode } from '../js/systems/cloudAutoSave.js';
 
 async function mountSettings(state, callbacks = { onChange: () => {}, onClose: () => {} }) {
   const { mount } = await import('../js/screens/settingsScreen.js');
@@ -19,6 +20,13 @@ test('settingsScreen DOM', async (t) => {
     const { unmount } = await import('../js/screens/settingsScreen.js');
     unmount();
     teardownDom();
+    // cloudAutoSave.js's activeCode is module-level state, not reset by
+    // unmount() (a real email link is meant to survive Settings closing
+    // and reopening while the same character keeps playing) - but that
+    // means it leaks across subtests here unless cleared explicitly, which
+    // would otherwise make a later test's mountSettings render the
+    // "linked" view instead of the plain send-a-code form.
+    clearActiveEmailCode();
   });
 
   await t.test('shows the current itemMenuAutoCloseMs value', async () => {
@@ -341,6 +349,63 @@ test('settingsScreen DOM', async (t) => {
       click(root.querySelector('#btn-cloud-code-load'));
       await new Promise((resolve) => setTimeout(resolve, 0));
       assert.match(root.querySelector('#cloud-code-status').textContent, /expired/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await t.test('Send me a code shows the success status and switches to the linked view', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, code: 'abcd2345' }) });
+    try {
+      const state = createNewGame();
+      state.settings.featureFlags.cloudSaveBeta = true;
+      const root = await mountSettings(state);
+      root.querySelector('#cloud-email-input').value = 'person@example.com';
+      click(root.querySelector('#btn-cloud-send-email'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.match(root.querySelector('#cloud-email-status').textContent, /Code sent/);
+      assert.equal(root.querySelector('#btn-cloud-send-email'), null); // linked view no longer shows the send button
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await t.test('Send me a code with an invalid address shows an error and never calls fetch', async () => {
+    const originalFetch = globalThis.fetch;
+    let fetchCalled = false;
+    globalThis.fetch = async () => { fetchCalled = true; return { ok: true, status: 200, json: async () => ({}) }; };
+    try {
+      const state = createNewGame();
+      state.settings.featureFlags.cloudSaveBeta = true;
+      const root = await mountSettings(state);
+      root.querySelector('#cloud-email-input').value = 'not-an-email';
+      click(root.querySelector('#btn-cloud-send-email'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.equal(fetchCalled, false);
+      assert.match(root.querySelector('#cloud-email-status').textContent, /valid email/);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  await t.test('Load with a valid email code hands the loaded data to onCloudSaveImported', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ data: { player: { level: 7 } } }) });
+    try {
+      const state = createNewGame();
+      state.settings.featureFlags.cloudSaveBeta = true;
+      let importedData = null;
+      const root = await mountSettings(state, {
+        onChange: () => {},
+        onClose: () => {},
+        onCloudSaveImported: (data) => { importedData = data; return { imported: true, mode: 'new', name: 'Emailed Hero' }; },
+      });
+      root.querySelector('#cloud-email-redeem-input').value = 'abcd2345';
+      click(root.querySelector('#btn-cloud-email-redeem'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      assert.deepEqual(importedData, { player: { level: 7 } });
+      assert.match(root.querySelector('#cloud-email-status').textContent, /Imported as "Emailed Hero"/);
     } finally {
       globalThis.fetch = originalFetch;
     }

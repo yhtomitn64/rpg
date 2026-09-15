@@ -139,7 +139,7 @@ of the three-session balance queue above — separate initiative):**
   - **Ability uses should charge Attack toward a bigger payoff instead of instantly resetting it to full, raised 2026-09-07** — see the Combat pass ideas section below for the full idea and Timothy's own wording. Explicitly shelved until after his current playthrough; not scoped.
 - **Mobile/touch combat should be turn-based** — raw idea, explicitly scoped to touch input only.
 - **Open question: faster battle timer against weaker enemies?** — needs a decision (is it a speed problem or a power problem), not just an implementation.
-- **Infrastructure** — a friend's lag report (too vague to act on, watch for recurrence); pixel-level visual regression test for the trail renderer (good idea, not started, needs its own small design pass); `battleScreenDom.test.js` carries the same fixed-delay CI-flakiness pattern fixed elsewhere 2026-09-07, not urgent (see Infrastructure / deployment section below).
+- **Infrastructure** — a friend's lag report (too vague to act on, watch for recurrence); pixel-level visual regression test for the trail renderer (good idea, not started, needs its own small design pass); `battleScreenDom.test.js` carries the same fixed-delay CI-flakiness pattern fixed elsewhere 2026-09-07, not urgent; Cloudflare account as Terraform/IaC, raised 2026-09-14, not started (see Infrastructure / deployment section below).
 - **Discoverability / monetization** — AdSense (blocked on Google review; placement plan already decided); Cloudflare traffic analytics (waiting on a token from Timothy); opt-in gameplay analytics + local play-data export (not designed, tied to the same difficulty-by-tool-gate tuning question).
 - **Input / accessibility** — controller support, raw idea, not investigated.
 - **Quests / economy** — manual sell-materials path still deferred (no real pain yet); **excess-gold sink resolved** — buff potions (10-item roster + loadout + battle quick-select) shipped 2026-08-31 as 0.15.0 as the answer. NG+-scaled purchasable store gear considered for the same gap and explicitly deferred (needs a rule for staying below earned/reforged gear first). **New big thread, raised 2026-09-07 (hold for playthrough feedback):** loot/gold/gear economy rework - cap smith upgrade levels per NG+ cycle tighter than today, gate the quest board + blacksmith behind story progress (a rescue-the-blacksmith beat behind the axe/mountain, with a broken/lost sign as the map breadcrumb), merge the quest-giver and blacksmith into one NPC, tier loot drops by enemy strength with more drops overall, halve gold from weak enemies. Timothy's doing a full playthrough first before committing to the structural pieces - see the full Loot/gold/gear economy rework entry in the Quests / economy section below. The quest board's own "auto-grant + flying items + townsfolk NPC" visual polish (originally being brainstormed this same session) is paused, tangled up in whether the quest board survives this redesign in its current form.
@@ -2340,6 +2340,36 @@ avoid stepping on it.
 
 ## Infrastructure / deployment
 
+### Cloudflare account as Terraform/IaC, raised 2026-09-14
+Raised mid-session while looking at KV usage metrics for the email-OTP
+cloud save feature: "is there anything I set up manually with
+Cloudflare we should have done with TF infra in code so if we ever had
+to tear something down we could set it back up easily?"
+
+Cloudflare has an official, actively-maintained Terraform provider
+(`cloudflare/cloudflare`) covering Pages projects, KV namespaces, DNS
+records, Workers, Zero Trust, R2, D1, etc. — this is doable. What's
+currently manual and would be genuinely painful to reconstruct from
+memory after a teardown, identified in that same conversation:
+- The `SAVES` KV namespace itself (created via `wrangler kv namespace
+  create SAVES`, its id just hardcoded into `wrangler.toml` — a
+  re-create gets a new id and needs that file updated by hand).
+- The `rpg.burghertime.com` custom-domain/DNS attachment to the
+  `emoji-rpg` Pages project.
+- The `burghertimelanding` Pages project and the `burghertime.com`
+  zone/DNS setup (see the AdSense backlog entry's landing-page thread).
+
+Not started — would need its own inventory-and-import pass (Terraform
+importing existing live resources rather than recreating them, to
+avoid an actual teardown/rebuild just to get under IaC) and its own
+brainstorm, independent of any feature work. Cloudflare's broader
+product surface is narrower than AWS's (no general-purpose VM fleet
+like EC2 outside of the still-beta Containers/VPC offerings, no
+managed relational DB service beyond D1's SQLite model, no outbound
+transactional-email product — see the email-OTP cloud save design's
+own note on that last point) but covers this project's actual
+footprint fine.
+
 ### Deploy workflow: reuse more between builds, pin the wrangler version, raised 2026-09-04
 ~~The wrangler-version-pin half~~ **shipped 2026-09-04 (0.24.2, hotfixed
 same day as 0.24.3)** — `wranglerVersion: '4.127.1'` added to the
@@ -2924,8 +2954,14 @@ original scaffold had:
    posture is exactly right, just needs the lazy-load piece added on top
    when this gets rebuilt.
 
-Not started - needs its own brainstorm/plan pass when picked up, not a
-bolt-on to whatever's in flight at the time.
+**Picked up 2026-09-14.** Brainstorming this surfaced a better-fitting
+alternative before any Google-specific code was written: an email
+one-time-code flow, which needs no third-party script in the browser
+at all (server-side only) and sidesteps the OAuth Console
+prerequisite entirely. Google Sign-In was shelved, not built - see
+`docs/superpowers/specs/2026-09-14-google-cloud-save-design.md`'s own
+"shelved" note. Implementing instead:
+`docs/superpowers/specs/2026-09-14-email-otp-cloud-save-design.md`.
 
 **Also cleaned up the same session, at Timothy's request:** `ads.txt`'s
 real AdSense publisher ID (`pub-1050250477422916`) was cleared to an

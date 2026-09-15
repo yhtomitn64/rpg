@@ -11,12 +11,27 @@
 // and a distributed attacker with many IPs isn't slowed at all) - it's a
 // deterrent sized for "keep a casual single-script sweep impractical,"
 // matching this feature's own low-stakes threat model.
+//
+// `keyPrefix`/`identifier` added 2026-09-14 for the email-OTP cloud save
+// feature (docs/superpowers/specs/2026-09-14-email-otp-cloud-save-design.md):
+// its three routes (send/push/redeem) each need their own isolated
+// counter rather than sharing one bucket keyed only on IP - `send`
+// additionally needs a per-recipient counter (an HMAC of the email, not
+// an IP) so an attacker rotating IPs can't bypass a per-victim cap. Both
+// default to today's exact behavior, so every existing call site is
+// unaffected.
 const DEFAULT_MAX_REQUESTS = 20;
 const DEFAULT_WINDOW_SECONDS = 60;
+const DEFAULT_KEY_PREFIX = 'ratelimit';
 
-export async function checkRateLimit(env, request, { max = DEFAULT_MAX_REQUESTS, windowSeconds = DEFAULT_WINDOW_SECONDS } = {}) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const key = `ratelimit:${ip}`;
+export async function checkRateLimit(env, request, {
+  max = DEFAULT_MAX_REQUESTS,
+  windowSeconds = DEFAULT_WINDOW_SECONDS,
+  keyPrefix = DEFAULT_KEY_PREFIX,
+  identifier,
+} = {}) {
+  const id = identifier ?? (request.headers.get('CF-Connecting-IP') || 'unknown');
+  const key = `${keyPrefix}:${id}`;
   const raw = await env.SAVES.get(key);
   const count = raw ? parseInt(raw, 10) : 0;
   if (count >= max) return false;
