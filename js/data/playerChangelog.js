@@ -5,6 +5,16 @@
 // or care about while playing. Keep it in sync manually: add a new entry
 // here alongside any CHANGELOG.md entry that's actually gameplay-facing.
 export const PLAYER_CHANGELOG = [
+  // Internal-only: a dev-only test dependency (source-map-js, pulled in by
+  // jsdom) got a security bump. Still needs an entry so versionSync.test.js
+  // and the footer stay in step with CHANGELOG.md.
+  {
+    version: '0.37.4',
+    date: '2026-10-20',
+    highlights: [
+      "Fixed: a behind-the-scenes security update to the game's test tooling - nothing to notice in-game.",
+    ],
+  },
   {
     version: '0.37.3',
     date: '2026-09-14',

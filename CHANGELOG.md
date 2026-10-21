@@ -24,6 +24,16 @@ public API, no formal release process — commits land straight on
 
 ## [Unreleased]
 
+## [0.37.4] - 2026-10-20
+
+### Security
+- **Bumped `source-map-js` 1.2.1 → 1.2.2** in `package-lock.json`,
+  clearing Dependabot's HIGH alert (event-loop denial of service via
+  indexed source-map section offsets). Dev-only transitive dependency
+  (`jsdom` → `css-tree` → `source-map-js`, used by the test suite) - not
+  shipped in the game, so no runtime impact. Lockfile-only change via
+  `npm update source-map-js`; `npm run test` passes unchanged.
+
 ## [0.37.3] - 2026-09-14
 
 ### Fixed
